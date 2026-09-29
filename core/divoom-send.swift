@@ -613,14 +613,22 @@ if let envPort = ProcessInfo.processInfo.environment["DIVOOM_PORT"],
     // Port 1 confirmed for Minitoo; keep 10 as fallback for other Jieli variants.
     portsToTry = [1, 10, 2, 3, 4, 5]
 }
-for port: BluetoothRFCOMMChannelID in portsToTry {
-    log("trying RFCOMM port \(port)...")
-    openResult = device.openRFCOMMChannelSync(&channel, withChannelID: port, delegate: delegate)
-    log("  result = 0x\(String(openResult, radix: 16))")
-    if openResult == kIOReturnSuccess, channel != nil {
-        openedPort = port
-        break
+func openChannel(ports: [BluetoothRFCOMMChannelID]) -> (IOBluetoothRFCOMMChannel, BluetoothRFCOMMChannelID)? {
+    for port in ports {
+        log("trying RFCOMM port \(port)...")
+        var opened: IOBluetoothRFCOMMChannel?
+        openResult = device.openRFCOMMChannelSync(&opened, withChannelID: port, delegate: delegate)
+        log("  result = 0x\(String(openResult, radix: 16))")
+        if openResult == kIOReturnSuccess, let opened = opened {
+            return (opened, port)
+        }
     }
+    return nil
+}
+
+if let (opened, port) = openChannel(ports: portsToTry) {
+    channel = opened
+    openedPort = port
 }
 
 guard openResult == kIOReturnSuccess, let ch = channel else {
@@ -649,7 +657,27 @@ func sendFrames(_ frames: [[UInt8]], on channel: IOBluetoothRFCOMMChannel, delay
     log("sendFrames: done elapsed=\(elapsedMs)ms")
 }
 
-func runDaemonLoop(on channel: IOBluetoothRFCOMMChannel) {
+// The device can drop the RFCOMM link (sleep, range, phone grabbing it). The
+// channel object then stays around but every write fails with kIOReturnNotOpen,
+// so check before each daemon command and reopen. Must run on the main queue.
+func ensureChannelOpen(_ channel: inout IOBluetoothRFCOMMChannel) -> Bool {
+    if channel.isOpen() { return true }
+    log("daemon: RFCOMM channel is closed; reconnecting...")
+    let ports = [openedPort] + portsToTry.filter { $0 != openedPort }
+    for attempt in 1...3 {
+        if let (opened, port) = openChannel(ports: ports) {
+            channel = opened
+            openedPort = port
+            log("daemon: reconnected on RFCOMM port \(port) (attempt \(attempt))")
+            return true
+        }
+        Thread.sleep(forTimeInterval: Double(attempt))
+    }
+    return false
+}
+
+func runDaemonLoop(on initialChannel: IOBluetoothRFCOMMChannel) {
+    var channel = initialChannel
     let fifoPath = ProcessInfo.processInfo.environment["DIVOOM_FIFO"] ?? "/tmp/divoom.fifo"
     let gapMs = Int(ProcessInfo.processInfo.environment["DIVOOM_GAP_MS"] ?? "600") ?? 600
     unlink(fifoPath)
@@ -682,6 +710,12 @@ func runDaemonLoop(on channel: IOBluetoothRFCOMMChannel) {
                     DispatchQueue.main.async { exit(0) }
                     return
                 }
+                if line == "drop-link" {
+                    // Test hook: simulate the device dropping the link.
+                    log("daemon: drop-link received; closing RFCOMM channel")
+                    DispatchQueue.main.sync { _ = channel.close() }
+                    continue
+                }
                 // Throttle: ensure we wait at least gapMs between commands so the
                 // Jieli firmware has time to apply the previous one.
                 let elapsed = Date().timeIntervalSince(lastSent) * 1000
@@ -692,11 +726,23 @@ func runDaemonLoop(on channel: IOBluetoothRFCOMMChannel) {
                 if let parsed = parseCommand(tokens) {
                     // Dispatch the write on the main queue so IOBluetooth delegates fire normally.
                     let sema = DispatchSemaphore(value: 0)
+                    var connected = true
                     DispatchQueue.main.async {
-                        sendFrames(parsed.frames, on: channel, delayMs: parsed.delayMs)
+                        connected = ensureChannelOpen(&channel)
+                        if connected {
+                            sendFrames(parsed.frames, on: channel, delayMs: parsed.delayMs)
+                        }
                         sema.signal()
                     }
                     sema.wait()
+                    if !connected {
+                        // Exit rather than linger half-alive: callers treat a live
+                        // FIFO as a working daemon and will start a fresh one.
+                        log("daemon: could not reconnect; exiting")
+                        try? fh.close()
+                        unlink(fifoPath)
+                        exit(6)
+                    }
                     lastSent = Date()
                 } else {
                     log("daemon: unknown command: \(line)")

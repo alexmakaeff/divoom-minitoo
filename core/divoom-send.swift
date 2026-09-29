@@ -601,17 +601,17 @@ var channel: IOBluetoothRFCOMMChannel?
 var openedPort: BluetoothRFCOMMChannelID = 0
 var openResult: IOReturn = kIOReturnError
 
-// Try the most-likely data channels first. On Jieli-based Divoom (Minitoo),
-// SDP advertises JL_SPP on channels 1 and 10. We try 10 first (usually the
-// command channel), then 1, then fall back to 2 (Ditoo audio family).
-// Override with: DIVOOM_PORT=10 ./divoom-send ...
+// MiniToo / Tiivoo 2 (Jieli) advertise JL_SPP on RFCOMM channels 1 and 10, but
+// only channel 1 carries control: channel 10 opens fine and then just echoes
+// every frame back without acting on it (FINDINGS.md §8l). So use channel 1 only;
+// if it is refused, another client (usually the phone app) holds it.
+// Override for other devices with: DIVOOM_PORT=<n> ./divoom-send ...
 let portsToTry: [BluetoothRFCOMMChannelID]
 if let envPort = ProcessInfo.processInfo.environment["DIVOOM_PORT"],
    let p = UInt8(envPort) {
     portsToTry = [BluetoothRFCOMMChannelID(p)]
 } else {
-    // Port 1 confirmed for Minitoo; keep 10 as fallback for other Jieli variants.
-    portsToTry = [1, 10, 2, 3, 4, 5]
+    portsToTry = [1]
 }
 func openChannel(ports: [BluetoothRFCOMMChannelID]) -> (IOBluetoothRFCOMMChannel, BluetoothRFCOMMChannelID)? {
     for port in ports {
@@ -632,7 +632,7 @@ if let (opened, port) = openChannel(ports: portsToTry) {
 }
 
 guard openResult == kIOReturnSuccess, let ch = channel else {
-    log("ERROR: could not open RFCOMM channel (last result 0x\(String(openResult, radix: 16))). Is the device paired?")
+    log("ERROR: could not open RFCOMM channel \(portsToTry) (last result 0x\(String(openResult, radix: 16))). Is the device paired? If so, another client holds the control channel: disconnect the Divoom phone app, or power-cycle the device.")
     exit(3)
 }
 log("connected on RFCOMM port \(openedPort)")

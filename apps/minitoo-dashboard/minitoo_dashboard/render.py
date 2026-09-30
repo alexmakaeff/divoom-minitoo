@@ -92,13 +92,6 @@ def wrap(text: str, f: ImageFont.FreeTypeFont, max_width: int, max_lines: int) -
     return lines
 
 
-def fit_font(text: str, max_width: int, sizes=(24, 16, 8)) -> ImageFont.FreeTypeFont:
-    for size in sizes:
-        if font(size).getlength(text) <= max_width:
-            return font(size)
-    return font(sizes[-1])
-
-
 def _fit(text: str, f: ImageFont.FreeTypeFont, max_width: int) -> str:
     return (wrap(text, f, max_width, 1) or [""])[0]
 
@@ -146,91 +139,76 @@ def _icon(d, condition: str, x: int, y: int) -> None:
         d.line([x + 17, y + 22, x + 13, y + 28, x + 19, y + 28, x + 15, y + 34], fill=YELLOW, width=2)
 
 
-def _weather_page(m: DashboardModel) -> Image.Image:
-    img, d = _canvas()
+def _weather_row(d, m: DashboardModel) -> None:
     w, lang = m.weather, m.lang
-    _icon(d, w.condition, 6, 12)
-    d.text((46, 10), _temp(w.temp, m.temp_unit), font=font(24), fill=WHITE)
-    d.text((46, 40), _fit(clean(m.city_name.split(",")[0]), font(8), 110), font=font(8), fill=DIM)
-    d.text((6, 58), _fit(i18n.t(lang, "cond_" + w.condition), font(8), 148), font=font(8), fill=WHITE)
-    d.text((6, 72), f"{_temp(w.tmax, m.temp_unit)} / {_temp(w.tmin, m.temp_unit)}", font=font(8), fill=WHITE)
-    if w.precip_from and w.precip_kind:
-        key = f"{w.precip_kind}_now" if w.precip_from == "now" else f"{w.precip_kind}_from"
-        d.text((6, 88), _fit(i18n.t(lang, key, t=w.precip_from), font(8), 148), font=font(8), fill=BLUE)
+    if w is None:
+        d.text((4, 16), i18n.t(lang, "no_weather"), font=font(8), fill=DIM)
+        return
+    _icon(d, w.condition, 2, 4)
+    d.text((40, 6), _temp(w.temp, m.temp_unit), font=font(16), fill=WHITE)
+    d.text((112, 10), f"{w.tmax}/{w.tmin}", font=font(8), fill=DIM)
     if w.age_s:
-        d.text((6, 104), i18n.t(lang, "ago", d=i18n.duration(w.age_s, lang)), font=font(8), fill=DIM)
-    return img
-
-
-def _calendar_page(m: DashboardModel) -> Image.Image:
-    img, d = _canvas()
-    e, lang = m.event, m.lang
-    d.text((6, 6), i18n.t(lang, "next"), font=font(8), fill=DIM)
-    if e.start <= m.now:
-        d.text((6, 20), i18n.t(lang, "now"), font=font(24), fill=BLUE)
-        small = i18n.t(lang, "until", t=_hhmm(e.end))
+        text, color = i18n.t(lang, "ago", d=i18n.duration(w.age_s, lang)), DIM
+    elif w.precip_from and w.precip_kind:
+        key = f"{w.precip_kind}_now" if w.precip_from == "now" else f"{w.precip_kind}_at"
+        text, color = i18n.t(lang, key, t=w.precip_from), BLUE
     else:
-        d.text((6, 20), _hhmm(e.start), font=font(24), fill=BLUE)
-        minutes = max(1, math.ceil((e.start - m.now) / 60))
-        small = (i18n.t(lang, "in_min", m=minutes) if minutes < 60
-                 else i18n.t(lang, "in_h", h=minutes // 60, m=minutes % 60))
-    d.text((6, 50), _fit(small, font(8), 148), font=font(8), fill=BLUE)
-    for i, line in enumerate(wrap(clean(e.title), font(8), 148, 3)):
-        d.text((6, 68 + i * 12), line, font=font(8), fill=WHITE)
-    return img
+        text, color = i18n.t(lang, "cond_" + w.condition), WHITE
+    d.text((40, 28), _fit(text, font(8), 116), font=font(8), fill=color)
+
+
+def _event_row(d, m: DashboardModel) -> None:
+    e, lang = m.event, m.lang
+    if e is None:
+        d.text((4, 58), i18n.t(lang, "none_left"), font=font(8), fill=DIM)
+        return
+    if e.start <= m.now:
+        d.text((4, 47), i18n.t(lang, "now"), font=font(8), fill=BLUE)
+        d.text((4, 57), i18n.t(lang, "until", t=_hhmm(e.end)), font=font(8), fill=BLUE)
+        title_y = 70
+    else:
+        d.text((4, 47), _hhmm(e.start), font=font(16), fill=BLUE)
+        left = i18n.t(lang, "in_short", d=i18n.duration(max(60, e.start - m.now), lang))
+        d.text((88, 51), _fit(left, font(8), 68), font=font(8), fill=BLUE)
+        title_y = 68
+    d.text((4, title_y), _fit(clean(e.title), font(8), 152), font=font(8), fill=WHITE)
 
 
 def _pct(window: Window) -> str:
     return f"{round(window.pct)}%" if window.pct is not None else "--"
 
 
-def _claude_page(m: DashboardModel) -> Image.Image:
-    img, d = _canvas()
+def _claude_row(d, m: DashboardModel) -> None:
     c, lang = m.claude, m.lang
-    d.text((6, 6), "CLAUDE", font=font(8), fill=DIM)
     if not c.has_data:
-        d.text((6, 56), i18n.t(lang, "no_data"), font=font(8), fill=WHITE)
-        return img
-    big = _pct(c.five)
-    big_font = fit_font(big, 78)  # "100%" at 24 px would run into the label column at x=86
-    d.text((6, 20 + (24 - big_font.size) // 2), big, font=big_font, fill=ORANGE)
-    d.text((86, 22), i18n.t(lang, "five_hour"), font=font(8), fill=DIM)
-    if c.five.is_reset:
-        d.text((86, 34), _fit(i18n.t(lang, "reset"), font(8), 70), font=font(8), fill=DIM)
-    elif c.five.reset_in is not None:
-        d.text((86, 34), i18n.duration(c.five.reset_in, lang), font=font(8), fill=DIM)
-    d.rectangle([6, 50, 153, 55], fill=TRACK)
-    if c.five.pct is not None:
-        d.rectangle([6, 50, 6 + round(147 * min(c.five.pct, 100) / 100), 55], fill=ORANGE)
-    week_text = i18n.t(lang, "reset") if c.week.is_reset else _pct(c.week)
-    d.text((6, 64), f"{i18n.t(lang, 'week')} {week_text}", font=font(8), fill=WHITE)
-    d.rectangle([6, 76, 153, 79], fill=TRACK)
-    if c.week.pct is not None:
-        d.rectangle([6, 76, 6 + round(147 * min(c.week.pct, 100) / 100), 79], fill=ORANGE)
+        d.text((4, 100), i18n.t(lang, "no_data"), font=font(8), fill=DIM)
+        return
+    for y, label, window in ((89, i18n.t(lang, "h5"), c.five), (101, i18n.t(lang, "wk"), c.week)):
+        d.text((4, y), label, font=font(8), fill=DIM)
+        d.rectangle([30, y, 114, y + 6], fill=TRACK)
+        if window.pct is not None:
+            d.rectangle([30, y, 30 + round(84 * min(window.pct, 100) / 100), y + 6], fill=ORANGE)
+        d.text((120, y), _pct(window), font=font(8), fill=WHITE)
     if c.as_of is not None:
-        d.text((6, 92), i18n.t(lang, "as_of", t=_hhmm(c.as_of)), font=font(8), fill=DIM)
+        footer = i18n.t(lang, "as_of", t=_hhmm(c.as_of))
+    elif c.five.is_reset:
+        footer = i18n.t(lang, "reset")
+    elif c.five.reset_in is not None:
+        footer = i18n.t(lang, "reset_in", d=i18n.duration(c.five.reset_in, lang))
+    else:
+        footer = ""
+    d.text((4, 115), _fit(footer, font(8), 140), font=font(8), fill=DIM)
+
+
+def render_screen(m: DashboardModel) -> Image.Image:
+    img, d = _canvas()
+    _weather_row(d, m)
+    d.line([4, 41, 155, 41], fill=TRACK)
+    _event_row(d, m)
+    d.line([4, 83, 155, 83], fill=TRACK)
+    _claude_row(d, m)
+    d.rectangle([148, 116, 155, 123], fill=ORANGE if m.status == "working" else GREY)
     return img
-
-
-def _decorate(img: Image.Image, index: int, total: int, status: str) -> None:
-    d = ImageDraw.Draw(img)
-    d.rectangle([148, 116, 155, 123], fill=ORANGE if status == "working" else GREY)
-    if total > 1:
-        x0 = (W - (total * 10 - 4)) // 2
-        for i in range(total):
-            d.rectangle([x0 + i * 10, 122, x0 + i * 10 + 5, 124], fill=WHITE if i == index else TRACK)
-
-
-def render_pages(m: DashboardModel) -> List[Image.Image]:
-    pages = []
-    if m.weather is not None:
-        pages.append(_weather_page(m))
-    if m.event is not None:
-        pages.append(_calendar_page(m))
-    pages.append(_claude_page(m))
-    for i, page in enumerate(pages):
-        _decorate(page, i, len(pages), m.status)
-    return pages
 
 
 def render_alert(lang: str) -> Image.Image:

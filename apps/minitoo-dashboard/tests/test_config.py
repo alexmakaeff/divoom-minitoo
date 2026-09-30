@@ -12,7 +12,7 @@ class ParseConfigTest(unittest.TestCase):
             'CITY_NAME="Moscow, Russia"\n'
             "CITY_LAT=55.7558\nCITY_LON=37.6173\n"
             "TEMP_UNIT=fahrenheit\nLANG=ru\nCALENDARS=Work, Home\n"
-            "PAGE_SECONDS=10\nSEND_DELAY_MS=5\n"
+            "PAGE_SECONDS=10\nSEND_DELAY_MS=5\n"  # PAGE_SECONDS: obsolete key, ignored
         )
         self.assertEqual(cfg.device_mac, "AA:BB:CC:DD:EE:01")
         self.assertEqual(cfg.city_name, "Moscow, Russia")
@@ -20,7 +20,7 @@ class ParseConfigTest(unittest.TestCase):
         self.assertAlmostEqual(cfg.city_lon, 37.6173)
         self.assertEqual(cfg.temp_unit, "fahrenheit")
         self.assertEqual(cfg.lang, "ru")
-        self.assertEqual(cfg.page_seconds, 10)
+        self.assertFalse(hasattr(cfg, "page_seconds"))
         self.assertEqual(cfg.send_delay_ms, 5)
         self.assertTrue(cfg.has_city)
         self.assertEqual(cfg.calendar_list(), ["Work", "Home"])
@@ -29,14 +29,13 @@ class ParseConfigTest(unittest.TestCase):
         cfg = config.parse_config("# comment\nLANG=de\nTEMP_UNIT=kelvin\nPAGE_SECONDS=abc\nCITY_LAT=north\nJUNK\n")
         self.assertEqual(cfg.lang, "en")
         self.assertEqual(cfg.temp_unit, "celsius")
-        self.assertEqual(cfg.page_seconds, 8)
         self.assertIsNone(cfg.city_lat)
         self.assertFalse(cfg.has_city)
         self.assertIsNone(cfg.calendar_list())
 
-    def test_page_seconds_clamped(self):
-        self.assertEqual(config.parse_config("PAGE_SECONDS=100").page_seconds, 60)
-        self.assertEqual(config.parse_config("PAGE_SECONDS=1").page_seconds, 2)
+    def test_send_delay_clamped(self):
+        self.assertEqual(config.parse_config("SEND_DELAY_MS=900").send_delay_ms, 200)
+        self.assertEqual(config.parse_config("SEND_DELAY_MS=-5").send_delay_ms, 0)
 
     def test_inline_comment(self):
         self.assertEqual(config.parse_config("TEMP_UNIT=fahrenheit  # US").temp_unit, "fahrenheit")

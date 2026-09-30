@@ -2,7 +2,7 @@
 
 A glanceable desk dashboard for the Divoom MiniToo: **weather**, **today's next
 calendar event** and **Claude subscription limits**, with a small Claude Code
-status badge on every page. When Claude is waiting for you, the screen switches
+status badge. When Claude asks you something, the screen switches
 to an alert.
 
 It pairs with [Clauddy](../clauddy/README.md): the dashboard replaces Clauddy's
@@ -10,25 +10,27 @@ It pairs with [Clauddy](../clauddy/README.md): the dashboard replaces Clauddy's
 
 ## What it shows
 
-The device cycles through the pages by itself (8 s each by default):
+One calm, static screen in three rows. Nothing flips or animates, so the only
+thing that grabs your attention is the alert.
 
-| Weather | Next event today | Claude limits | Alert (without Clauddy) |
-| :---: | :---: | :---: | :---: |
-| ![weather](docs/page-1.png) | ![event](docs/page-2.png) | ![claude](docs/page-3.png) | ![alert](docs/alert.png) |
+| Dashboard | Alert (without Clauddy) |
+| :---: | :---: |
+| ![dashboard](docs/screen.png) | ![alert](docs/alert.png) |
 
-- **Weather**: current temperature, condition, today's high/low and when rain or
-  snow is expected, for a city you choose. Data from [Open-Meteo](https://open-meteo.com/)
-  (no key, no account).
-- **Next event**: the next timed event from macOS Calendar that starts later
-  today, or the one in progress. All-day events are ignored. Tomorrow's events
-  appear after midnight. With nothing left today, the page is skipped.
-- **Claude limits** (Pro/Max): 5-hour and weekly usage, and time until the
-  5-hour window resets.
-- **Status badge** (bottom right on every page): orange while Claude is
-  working, grey when it is idle.
-- **Alert**: when Claude asks you something (a permission prompt or a question), the
-  screen switches to Clauddy's `alerting` face instantly. Without Clauddy, a
-  red full-screen alert frame is shown instead.
+- **Weather** (top): current temperature, today's high/low, and when rain or
+  snow is expected (otherwise the sky condition), for a city you choose. Data
+  from [Open-Meteo](https://open-meteo.com/) (no key, no account).
+- **Next event** (middle): the next timed event from macOS Calendar that starts
+  later today, or the one in progress ("NOW / until 15:00"). All-day events are
+  ignored. Tomorrow's events appear after midnight. With nothing left today the
+  row says "No events left".
+- **Claude limits** (bottom, Pro/Max): 5-hour and weekly usage bars, and time
+  until the 5-hour window resets.
+- **Status badge** (bottom right): orange while Claude is working, grey when it
+  is idle. It changes within a second or two.
+- **Alert**: when Claude asks you something (a permission prompt or a
+  question), the screen switches to Clauddy's `alerting` face instantly.
+  Without Clauddy, a red alert frame is shown instead.
 
 Screen text is English by default; Russian is available.
 
@@ -69,7 +71,7 @@ Start a new Claude Code session afterwards so the hooks load.
 ```bash
 minitoo-dashboard status           # what the dashboard is doing, data freshness
 minitoo-dashboard city "Kazan"     # change the weather city
-minitoo-dashboard preview          # render the current pages to PNG
+minitoo-dashboard preview          # render the current screen to PNG
 minitoo-dashboard pause            # release the device (e.g. for the phone app)
 minitoo-dashboard resume
 minitoo-dashboard logs
@@ -93,7 +95,6 @@ every second.
 | `TEMP_UNIT` | from macOS settings | `celsius` or `fahrenheit` |
 | `LANG` | `en` | on-screen language: `en` or `ru` |
 | `CALENDARS` | `all` | comma-separated calendar names to include |
-| `PAGE_SECONDS` | `8` | seconds per page (2–60) |
 | `SEND_DELAY_MS` | `20` | pause between Bluetooth chunks (0–200) |
 
 ## How it works
@@ -111,9 +112,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
 - Each Claude Code session reports its own state. If any session is waiting
   for you, the screen shows the alert. If any is working, the badge is orange.
   A session silent for 30 minutes is ignored.
-- The pages are sent as one live animation (opcode `0x8B`, see
-  [FINDINGS.md](../../FINDINGS.md) §8i); the device cycles them itself. A
-  3-page upload takes under a second.
+- The screen is sent as a single-frame live animation (opcode `0x8B`, see
+  [FINDINGS.md](../../FINDINGS.md) §8i). An upload takes well under a second,
+  and an unchanged screen is re-sent every 5 minutes so a rebooted MiniToo
+  gets it back.
 
 | Data | Refresh |
 | --- | --- |
@@ -128,13 +130,13 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   device off, out of range or held by the phone, the daemon retries after
   30 s, 1, 2 and 5 minutes, and recovers by itself. `minitoo-dashboard logs`
   shows the details.
-- **No calendar page.** Nothing is left today, or Calendar access was not
+- **"No events left" although you have one.** Nothing timed is left today, or Calendar access was not
   granted: System Settings > Privacy & Security > Calendars > `calendar-helper`.
   Reminders from the Reminders app are not events and are not shown.
-- **Claude page says "no data yet" or shows an old "as of" time.** Limits come
+- **Claude row says "no data yet" or shows an old "as of" time.** Limits come
   from Claude Code's status line, which runs in the terminal `claude` CLI. The
-  Claude desktop app's Code tab does not run status line commands, so limits
-  refresh only while you use a client that does.
+  Claude desktop app's Code tab and the VS Code extension do not run status
+  line commands, so limits refresh only while you use the terminal CLI.
 - **You already had a status line.** Add
   `printf '%s' "$input" | "<path>/bin/statusline.py"` near the top of your
   script, after it reads stdin into `$input`.

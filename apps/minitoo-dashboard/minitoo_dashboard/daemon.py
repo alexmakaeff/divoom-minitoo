@@ -40,7 +40,7 @@ class Backoff:
 
 
 def default_dashboard_blob(model: render.DashboardModel, cfg: config_mod.Config) -> bytes:
-    return encode.build_blob(render.render_pages(model), cfg.page_seconds * 1000)
+    return encode.build_blob([render.render_screen(model)], 1000)
 
 
 def default_alert_blob(cfg: config_mod.Config) -> bytes:

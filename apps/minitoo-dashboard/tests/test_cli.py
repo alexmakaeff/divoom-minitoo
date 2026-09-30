@@ -74,8 +74,8 @@ class CliTest(unittest.TestCase):
         code, _ = self.run_cli(["preview", "--demo", "--out", str(out_dir)])
         self.assertEqual(code, 0)
         files = sorted(p.name for p in out_dir.iterdir())
-        self.assertEqual(files, ["alert.png", "page-1.png", "page-2.png", "page-3.png"])
-        self.assertEqual(Image.open(out_dir / "page-1.png").size, (480, 384))
+        self.assertEqual(files, ["alert.png", "screen.png"])
+        self.assertEqual(Image.open(out_dir / "screen.png").size, (480, 384))
 
 
 if __name__ == "__main__":

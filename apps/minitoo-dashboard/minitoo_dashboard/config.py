@@ -17,7 +17,6 @@ class Config:
     temp_unit: str = "celsius"
     lang: str = "en"
     calendars: str = "all"
-    page_seconds: int = 8
     send_delay_ms: int = 20
 
     @property
@@ -90,8 +89,6 @@ def parse_config(text: str) -> Config:
             cfg.lang = value
         elif key == "CALENDARS" and value:
             cfg.calendars = value
-        elif key == "PAGE_SECONDS":
-            cfg.page_seconds = _clamp_int(value, 8, 2, 60)
         elif key == "SEND_DELAY_MS":
             cfg.send_delay_ms = _clamp_int(value, 20, 0, 200)
     return cfg
@@ -109,7 +106,6 @@ def format_config(cfg: Config) -> str:
         f"TEMP_UNIT={cfg.temp_unit}",
         f"LANG={cfg.lang}",
         f"CALENDARS={cfg.calendars}",
-        f"PAGE_SECONDS={cfg.page_seconds}",
         f"SEND_DELAY_MS={cfg.send_delay_ms}",
     ]
     return "\n".join(line.replace("\n", " ") for line in lines) + "\n"

@@ -104,11 +104,10 @@ def cmd_preview(args) -> int:
         model = sources.model(cfg, sources.status(now), now)
     out = Path(args.out) if args.out else paths.home() / "preview"
     out.mkdir(parents=True, exist_ok=True)
-    images = render.render_pages(model)
-    for i, page in enumerate(images, 1):
-        page.resize((render.W * 3, render.H * 3), Image.NEAREST).save(out / f"page-{i}.png")
-    render.render_alert(cfg.lang).resize((render.W * 3, render.H * 3), Image.NEAREST).save(out / "alert.png")
-    print(f"Wrote {len(images)} page(s) and alert.png to {out}")
+    size = (render.W * 3, render.H * 3)
+    render.render_screen(model).resize(size, Image.NEAREST).save(out / "screen.png")
+    render.render_alert(cfg.lang).resize(size, Image.NEAREST).save(out / "alert.png")
+    print(f"Wrote screen.png and alert.png to {out}")
     return 0
 
 

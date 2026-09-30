@@ -2,19 +2,21 @@ from __future__ import annotations
 
 STRINGS = {
     "en": {
-        "next": "NEXT", "now": "NOW", "until": "until {t}", "in_min": "in {m} min", "in_h": "in {h}h {m:02d}m",
-        "five_hour": "5-hour", "week": "week", "reset": "reset", "as_of": "as of {t}", "no_data": "no data yet",
-        "ago": "{d} ago", "rain_from": "Rain from {t}", "snow_from": "Snow from {t}",
-        "rain_now": "Rain now", "snow_now": "Snow now", "alert": "Claude needs you",
+        "now": "NOW", "until": "until {t}", "in_short": "in {d}", "none_left": "No events left",
+        "h5": "5h", "wk": "wk", "reset": "reset", "reset_in": "reset {d}", "as_of": "as of {t}",
+        "no_data": "Claude: no data yet", "no_weather": "No weather data", "ago": "{d} ago",
+        "rain_at": "Rain {t}", "snow_at": "Snow {t}", "rain_now": "Rain now", "snow_now": "Snow now",
+        "alert": "Claude needs you",
         "cond_clear": "Clear", "cond_partly": "Partly cloudy", "cond_cloudy": "Cloudy", "cond_fog": "Fog",
         "cond_rain": "Rain", "cond_snow": "Snow", "cond_storm": "Storm",
     },
     "ru": {
-        "next": "ДАЛЕЕ", "now": "СЕЙЧАС", "until": "до {t}", "in_min": "через {m} мин", "in_h": "через {h}ч {m:02d}м",
-        "five_hour": "5 часов", "week": "неделя", "reset": "сброшен", "as_of": "на {t}", "no_data": "нет данных",
-        "ago": "{d} назад", "rain_from": "Дождь с {t}", "snow_from": "Снег с {t}",
-        "rain_now": "Идёт дождь", "snow_now": "Идёт снег", "alert": "Claude ждёт вас",
-        "cond_clear": "Ясно", "cond_partly": "Переменная обл.", "cond_cloudy": "Облачно", "cond_fog": "Туман",
+        "now": "СЕЙЧАС", "until": "до {t}", "in_short": "{d}", "none_left": "Событий нет",
+        "h5": "5ч", "wk": "нед", "reset": "сброшен", "reset_in": "сброс {d}", "as_of": "на {t}",
+        "no_data": "Claude: нет данных", "no_weather": "Нет данных о погоде", "ago": "{d} назад",
+        "rain_at": "Дождь {t}", "snow_at": "Снег {t}", "rain_now": "Идёт дождь", "snow_now": "Идёт снег",
+        "alert": "Claude ждёт вас",
+        "cond_clear": "Ясно", "cond_partly": "Перем. обл.", "cond_cloudy": "Облачно", "cond_fog": "Туман",
         "cond_rain": "Дождь", "cond_snow": "Снег", "cond_storm": "Гроза",
     },
 }

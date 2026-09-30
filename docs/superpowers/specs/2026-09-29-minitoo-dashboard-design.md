@@ -71,6 +71,18 @@ one frame delay per upload.
 - Font: a bitmap/pixel font with Latin + Cyrillic under OFL or MIT, vendored in
   the app directory with its licence file.
 
+### Amendment (2026-09-30): single static screen
+
+After living with the 3-page rotation the owner found that page flips pull the
+eye and compete with the alert. The dashboard is now **one static screen**
+(the brainstorming layout "A", three rows): weather (icon, temperature,
+high/low, precipitation hint or condition; the city name is dropped), next
+event (time and time left, or "NOW / until HH:MM", title on one line; "No events
+left" when none), Claude (5-hour and weekly bars with percentages, reset time
+or "as of"). The badge stays bottom-right. It is sent as a single-frame `0x8B`
+animation; `PAGE_SECONDS` is removed. Sections above that describe pages and
+page dots are superseded by this amendment.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

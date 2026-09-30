@@ -66,7 +66,7 @@ one frame delay per upload.
 
 - On-screen language: English by default, Russian optional (`LANG=en|ru`).
   Event titles are shown as written, so the font must cover Latin and Cyrillic.
-- Units: taken from macOS locale settings (`°C`/`°F`, km/h or m/s vs mph);
+- Units: taken from macOS locale settings (`°C`/`°F`);
   overridable in config.
 - Font: a bitmap/pixel font with Latin + Cyrillic under OFL or MIT, vendored in
   the app directory with its licence file.
@@ -188,7 +188,6 @@ CITY_NAME=Moscow, Russia
 CITY_LAT=55.7558
 CITY_LON=37.6173
 TEMP_UNIT=celsius        # celsius | fahrenheit
-WIND_UNIT=ms             # ms | kmh | mph
 LANG=en                  # en | ru
 CALENDARS=all            # all | comma-separated calendar titles
 PAGE_SECONDS=8

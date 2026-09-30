@@ -1,3 +1,5 @@
+import contextlib
+import io
 import json
 import tempfile
 import unittest
@@ -72,7 +74,9 @@ class CliTest(unittest.TestCase):
             self.assertEqual(settings.main(["has-clauddy", "--settings", str(sfile)]), 0)
             settings.main(["install-hooks", "--settings", str(sfile), "--hook", HOOK,
                            "--saved", str(saved), "--replace-clauddy"])
-            settings.main(["install-statusline", "--settings", str(sfile), "--statusline", SL])
+            with contextlib.redirect_stdout(io.StringIO()) as out:
+                settings.main(["install-statusline", "--settings", str(sfile), "--statusline", SL])
+            self.assertEqual(out.getvalue().strip(), "absent")
             data = json.loads(sfile.read_text())
             self.assertEqual(commands(data, "Stop"), [f'"{HOOK}" chilling'])
             self.assertIn("statusLine", data)

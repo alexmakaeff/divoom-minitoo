@@ -51,6 +51,12 @@ class CollectTest(unittest.TestCase):
         self.assertEqual(store.read_json(self.cache / "weather.json")["fetched_at"], NOW)
         self.assertEqual(store.read_json(self.cache / "calendar.json")["status"], "ok")
 
+    def test_refresh_claude_writes_cache(self):
+        rec = {"captured_at": NOW, "source": "direct",
+               "five_hour": {"used_percentage": 62.0, "resets_at": NOW + 600}}
+        self.sources(fetch_claude=lambda now: rec).refresh_claude(NOW)
+        self.assertEqual(store.read_json(self.cache / "claude.json"), rec)
+
     def test_status_reads_sessions(self):
         (self.sessions / "s1").write_text(f"alerting {NOW}\n")
         self.assertEqual(self.sources().status(NOW), "alerting")

@@ -58,6 +58,50 @@ class ViewTest(unittest.TestCase):
         self.assertEqual(claude.claude_view(rec, NOW).week, claude.Window(None, None, False))
 
 
+class DirectUsageTest(unittest.TestCase):
+    HELPER_OK = {"status": "ok",
+                 "five_hour": {"utilization": 62.0, "resets_at": "2026-09-30T11:40:00.256658+00:00"},
+                 "seven_day": {"utilization": 30.0, "resets_at": "2026-10-02T09:00:00+00:00"}}
+
+    def test_parse_helper_output(self):
+        rec = claude.parse_direct(self.HELPER_OK, 1000.0)
+        self.assertEqual(rec["captured_at"], 1000.0)
+        self.assertEqual(rec["source"], "direct")
+        self.assertEqual(rec["five_hour"]["used_percentage"], 62.0)
+        self.assertAlmostEqual(rec["five_hour"]["resets_at"], 1790768400.256658, places=3)
+        self.assertEqual(rec["seven_day"]["used_percentage"], 30.0)
+
+    def test_error_status_raises(self):
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.parse_direct({"status": "expired"}, 0)
+        self.assertIn("expired", str(ctx.exception))
+
+    def test_missing_windows_raise(self):
+        with self.assertRaises(claude.DirectError):
+            claude.parse_direct({"status": "ok"}, 0)
+
+    def test_null_resets_at_skips_window(self):
+        data = {"status": "ok", "five_hour": {"utilization": 5.0, "resets_at": None},
+                "seven_day": self.HELPER_OK["seven_day"]}
+        self.assertNotIn("five_hour", claude.parse_direct(data, 0))
+
+    def test_fetch_runs_helper_and_parses(self):
+        import subprocess as sp
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return sp.CompletedProcess(cmd, 0, json.dumps(self.HELPER_OK), "")
+        rec = claude.fetch_direct(Path("/x/usage-helper"), 5.0, run=run)
+        self.assertEqual(calls, [["/x/usage-helper"]])
+        self.assertEqual(rec["five_hour"]["used_percentage"], 62.0)
+
+    def test_fetch_bad_output_raises(self):
+        import subprocess as sp
+        with self.assertRaises(claude.DirectError):
+            claude.fetch_direct(Path("/x"), 0, run=lambda cmd, **kw: sp.CompletedProcess(cmd, 1, "garbage", ""))
+
+
 class StatuslineScriptTest(unittest.TestCase):
     def run_script(self, home, payload):
         env = dict(os.environ, MINITOO_DASHBOARD_HOME=home)

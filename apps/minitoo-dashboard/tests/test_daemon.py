@@ -28,6 +28,15 @@ class FakeSources:
     def refresh_calendar(self, cfg, now):
         self.calendar_calls += 1
 
+    claude_calls = 0
+    claude_fails = False
+
+    def refresh_claude(self, now):
+        self.claude_calls += 1
+        if self.claude_fails:
+            from minitoo_dashboard.sources.claude import DirectError
+            raise DirectError("expired")
+
     def model(self, cfg, status, now):
         return (status, self.version)
 
@@ -146,6 +155,29 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T + 25)
         dash.tick(T + 50)  # jump of 25 s < WAKE_JUMP keeps schedule
         self.assertEqual(self.sources.weather_calls, 1)
+
+    def test_direct_limits_polled_every_five_minutes(self):
+        cfg = Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct")
+        dash = self.make(cfg=cfg)
+        t = T
+        while t <= T + 290:
+            dash.tick(t)
+            t += 10
+        self.assertEqual(self.sources.claude_calls, 1)
+        dash.tick(T + 300)
+        self.assertEqual(self.sources.claude_calls, 2)
+
+    def test_statusline_mode_never_polls(self):
+        dash = self.make()
+        dash.tick(T)
+        self.assertEqual(self.sources.claude_calls, 0)
+
+    def test_direct_failure_is_reported_and_retried(self):
+        self.sources.claude_fails = True
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+        dash.tick(T)
+        self.assertIn("expired", store.read_json(self.home / "state.json")["limits_error"])
+        self.assertEqual(len(self.sends()), 1)
 
     def test_no_device_configured(self):
         dash = self.make(cfg=Config())

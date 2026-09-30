@@ -16,6 +16,7 @@ log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches t
 WEATHER_EVERY = 900
 WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
+CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
 WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
@@ -66,7 +67,8 @@ class Dashboard:
         self.paused = False
         self.status = "chilling"
         self.last_tick: Optional[float] = None
-        self.next_weather = self.next_calendar = 0.0
+        self.next_weather = self.next_calendar = self.next_claude = 0.0
+        self.limits_error: Optional[str] = None
         self.weather_key: Any = None
         self.last_sent_at: Optional[float] = None
         self.last_error: Optional[str] = None
@@ -83,7 +85,7 @@ class Dashboard:
         cfg = self.load_config()
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
-            self.next_weather = self.next_calendar = 0.0
+            self.next_weather = self.next_calendar = self.next_claude = 0.0
             self.last_blob = None
             self.backoff.ok()
         self.last_tick = now
@@ -131,6 +133,14 @@ class Dashboard:
             except Exception as exc:
                 log.warning("calendar refresh failed: %s", exc)
             self.next_calendar = now + CALENDAR_EVERY
+        if cfg.claude_limits == "direct" and now >= self.next_claude:
+            try:
+                self.sources.refresh_claude(now)
+                self.limits_error = None
+            except Exception as exc:  # expired token, endpoint change, no network: keep last data
+                self.limits_error = str(exc)
+                log.warning("direct Claude limits failed: %s", exc)
+            self.next_claude = now + CLAUDE_EVERY
 
     def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
         if self.alert_shown:
@@ -161,7 +171,7 @@ class Dashboard:
                                               ("dashboard" if self.last_blob else "none"))
         state = {"status": self.status, "shown": shown, "paused": self.paused,
                  "last_sent_at": self.last_sent_at, "last_error": self.last_error,
-                 "retry_at": self.backoff.until or None}
+                 "retry_at": self.backoff.until or None, "limits_error": self.limits_error}
         if state == self._last_state and now - self._last_state_write < HEARTBEAT:
             return
         self._last_state, self._last_state_write = state, now

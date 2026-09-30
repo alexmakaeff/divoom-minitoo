@@ -28,6 +28,8 @@ def cmd_init(args) -> int:
         cfg.lang = args.lang
     if args.temp_unit:
         cfg.temp_unit = args.temp_unit
+    if args.claude_limits:
+        cfg.claude_limits = args.claude_limits
     config.save_config(cfg)
     print(f"Config written: {paths.config_path()}")
     return 0
@@ -90,7 +92,11 @@ def cmd_status(args) -> int:
         if cal_status in ("denied", "not_determined") else ""
     print(f"Calendar:      {cal_status}{hint}")
     c = store.read_json(cache / "claude.json")
-    print(f"Claude limits: {'captured ' + _ago(c.get('captured_at'), now) if isinstance(c, dict) else 'no data yet'}")
+    captured = f"captured {_ago(c.get('captured_at'), now)} via {c.get('source', 'statusline')}" \
+        if isinstance(c, dict) else "no data yet"
+    print(f"Claude limits: {captured}   (source setting: {cfg.claude_limits})")
+    if state.get("limits_error"):
+        print(f"Limits error:  {state['limits_error']}")
     return 0
 
 
@@ -152,6 +158,7 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("--mac")
     p.add_argument("--lang", choices=("en", "ru"))
     p.add_argument("--temp-unit", choices=("celsius", "fahrenheit"))
+    p.add_argument("--claude-limits", choices=("statusline", "direct"))
     p = sub.add_parser("city", help="set the weather city")
     p.add_argument("name", nargs="+")
     p.add_argument("--pick", type=int)

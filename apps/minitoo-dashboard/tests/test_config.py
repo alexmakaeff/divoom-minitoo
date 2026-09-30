@@ -33,6 +33,11 @@ class ParseConfigTest(unittest.TestCase):
         self.assertFalse(cfg.has_city)
         self.assertIsNone(cfg.calendar_list())
 
+    def test_claude_limits_source(self):
+        self.assertEqual(config.Config().claude_limits, "statusline")
+        self.assertEqual(config.parse_config("CLAUDE_LIMITS=direct").claude_limits, "direct")
+        self.assertEqual(config.parse_config("CLAUDE_LIMITS=bogus").claude_limits, "statusline")
+
     def test_send_delay_clamped(self):
         self.assertEqual(config.parse_config("SEND_DELAY_MS=900").send_delay_ms, 200)
         self.assertEqual(config.parse_config("SEND_DELAY_MS=-5").send_delay_ms, 0)

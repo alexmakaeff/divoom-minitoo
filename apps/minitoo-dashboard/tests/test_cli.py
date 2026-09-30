@@ -58,6 +58,10 @@ class CliTest(unittest.TestCase):
         self.assertEqual((code, cfg.device_mac, cfg.lang, cfg.temp_unit, cfg.city_lat),
                          (0, "AA:BB:CC:DD:EE:FF", "ru", "fahrenheit", 55.75))
 
+    def test_init_sets_limits_source(self):
+        self.run_cli(["init", "--claude-limits", "direct"])
+        self.assertEqual(config.load_config().claude_limits, "direct")
+
     def test_pause_resume(self):
         self.run_cli(["pause"])
         self.assertTrue((self.home / "paused").exists())

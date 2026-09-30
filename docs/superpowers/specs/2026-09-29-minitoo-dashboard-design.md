@@ -239,6 +239,24 @@ first, with throwaway code:
 If (1) or (2) fails, stop and revisit the display path with the owner before
 building the rest.
 
+### Spike results (2026-09-30)
+
+Run on the owner's MiniToo (firmware 2.4.0) with Clauddy hooks neutralised
+(they switch faces on every Claude Code event and would otherwise interfere).
+
+| # | Question | Result |
+| --- | --- | --- |
+| 1 | 0x8B stays on screen | Pass: stayed 20+ min with no fallback to clock/gallery. |
+| 2 | Re-send every 60 s | Pass: 5 sends, no flicker/loading/corruption; 0 chunk re-requests at 20 ms and 5 ms pacing (~0.76 s per 3-page upload at 20 ms). Chosen `SEND_DELAY_MS=20`. |
+| 3 | Dashboard ↔ alert face | Pass: `SetClockSelectId` to Clauddy's alerting face and back to a 0x8B animation both work. |
+| 4 | 8000 ms frame delay | Pass: pages change every ~8 s. |
+| 5 | Desktop app runs status line | **Fail**: with a probe `statusLine` configured, a new Code-tab session in the Claude desktop app never ran it. |
+| 6 | Joystick reported to host | **Fail**: up/down (face carousel), left/right and press produced only keepalive frames; nothing is reported. |
+
+Consequences: the 0x8B display path is confirmed. The joystick follow-up (§10)
+is not possible as designed. Item 5 affects where Claude limits come from; see
+the owner's decision below.
+
 ## 9. Distribution
 
 Everything lives in `apps/minitoo-dashboard/` with an English README and

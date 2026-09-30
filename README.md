@@ -54,6 +54,10 @@ apps/clauddy/          A Claude Code agent-status display: three preloaded GIF
                        command to switch between them. Wires up to Claude Code
                        hooks.
 
+apps/minitoo-dashboard/
+                       Weather, today's next event and Claude limits as a desk
+                       dashboard; pairs with Clauddy.
+
 references/            Vendored third-party projects kept for reference only
                        (e.g. pixoo-mcp-server — different Divoom device).
 ```

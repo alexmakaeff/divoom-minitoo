@@ -96,6 +96,31 @@ every second.
 | `LANG` | `en` | on-screen language: `en` or `ru` |
 | `CALENDARS` | `all` | comma-separated calendar names to include |
 | `SEND_DELAY_MS` | `20` | pause between Bluetooth chunks (0–200) |
+| `CLAUDE_LIMITS` | `statusline` | `statusline`, or `direct` to also ask Anthropic every 5 min (see below) |
+
+## Where Claude limits come from
+
+- **`statusline` (default).** Claude Code passes subscription limits to its
+  status line command, which the installer sets up. This is documented and
+  needs no credentials, but only the terminal `claude` CLI runs status line
+  commands. The Claude desktop app and the VS Code extension do not, so while
+  you use those the numbers go stale and show "as of HH:MM".
+- **`direct` (opt-in).** Every 5 minutes a small helper, `usage-helper`, reads
+  Claude Code's login from the macOS Keychain and asks the same endpoint that
+  Claude Code's `/usage` uses. Only percentages and reset times leave the
+  helper; the token is never printed, stored or refreshed. On first run macOS
+  asks whether `usage-helper` may use the "Claude Code-credentials" item.
+  Choose *Always Allow*: the grant covers only this helper. Be aware that:
+  - the endpoint is **undocumented** and may change or disappear at any time;
+  - using a subscription token outside Claude Code is a grey area in
+    Anthropic's terms;
+  - an expired token is skipped, not refreshed. It renews the next time Claude
+    Code runs.
+
+  If a direct request fails, the dashboard keeps the last numbers, the status
+  line still updates them, and `minitoo-dashboard status` shows the error. To
+  switch, run `minitoo-dashboard init --claude-limits direct` (or `statusline`).
+  After rebuilding `usage-helper`, macOS asks for Keychain access again.
 
 ## How it works
 
@@ -136,7 +161,8 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
 - **Claude row says "no data yet" or shows an old "as of" time.** Limits come
   from Claude Code's status line, which runs in the terminal `claude` CLI. The
   Claude desktop app's Code tab and the VS Code extension do not run status
-  line commands, so limits refresh only while you use the terminal CLI.
+  line commands, so limits refresh only while you use the terminal CLI, unless you
+  enable `CLAUDE_LIMITS=direct`.
 - **You already had a status line.** Add
   `printf '%s' "$input" | "<path>/bin/statusline.py"` near the top of your
   script, after it reads stdin into `$input`.

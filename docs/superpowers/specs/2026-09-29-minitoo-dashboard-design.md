@@ -83,6 +83,19 @@ or "as of"). The badge stays bottom-right. It is sent as a single-frame `0x8B`
 animation; `PAGE_SECONDS` is removed. Sections above that describe pages and
 page dots are superseded by this amendment.
 
+### Amendment (2026-09-30): optional direct limits source
+
+Neither the desktop app nor the VS Code extension runs status line commands
+(verified by the owner). Owner decision: `CLAUDE_LIMITS=statusline|direct`,
+chosen during install (default `statusline`, with the risks explained). With
+`direct`, a separate `usage-helper` binary reads the Claude Code Keychain item
+and calls the endpoint behind `/usage` every 5 minutes. Only
+`five_hour`/`seven_day` utilization and reset times leave it, and it never
+refreshes the token. It is a separate binary so that the user's "Always Allow"
+Keychain grant covers only it, not `/usr/bin/security`. Failures keep the last
+data and are shown by `status`. The status line stays installed as a fallback.
+Verified on the owner's Pro account on 2026-09-30.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

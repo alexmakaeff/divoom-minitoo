@@ -63,7 +63,34 @@ lang="$(ask 'On-screen language [en/ru] (en): ' en)"
 case "$lang" in en|ru) ;; *) lang=en ;; esac
 unit=celsius
 [ "$(defaults read -g AppleTemperatureUnit 2>/dev/null || true)" = Fahrenheit ] && unit=fahrenheit
-"$BIN" init --mac "$mac" --lang "$lang" --temp-unit "$unit"
+cat <<'EOM'
+
+Where should Claude limits come from?
+  1) Status line only (default). Documented and safe, but limits refresh only
+     while you use the terminal `claude` CLI (not the desktop app or VS Code).
+  2) Also ask Anthropic directly every 5 minutes, like Claude Code's /usage.
+     Works with any Claude client, but:
+       - it uses an undocumented endpoint that may change or break at any time;
+       - a small helper reads your Claude Code login token from the Keychain
+         (only percentages leave it; the token is never printed or stored);
+       - using a subscription token outside Claude Code is a grey area in
+         Anthropic's terms. Your call.
+     If it stops working, the dashboard falls back to the status line.
+EOM
+limits=statusline
+if [ "$(ask 'Choose 1 or 2 [1]: ' 1)" = 2 ]; then
+  "$APP_DIR/usage-helper/build.sh" >/dev/null
+  note "macOS will ask to let 'usage-helper' use the 'Claude Code-credentials' Keychain item."
+  note "Choose 'Always Allow' so the dashboard can check every 5 minutes."
+  if "$APP_DIR/usage-helper/usage-helper" >/dev/null; then
+    limits=direct
+    note "Direct Claude limits: working ✓"
+  else
+    note "Direct Claude limits did not work (Keychain access denied or request failed); using the status line only."
+    note "Switch later by setting CLAUDE_LIMITS=direct in $HOME_DIR/config."
+  fi
+fi
+"$BIN" init --mac "$mac" --lang "$lang" --temp-unit "$unit" --claude-limits "$limits"
 while true; do
   city="$(ask 'City for weather (empty to skip): ' '')"
   if [ -z "$city" ]; then

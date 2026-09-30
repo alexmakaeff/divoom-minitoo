@@ -112,7 +112,10 @@ staleness and `render` are pure functions with no I/O.
 - A session file older than 30 minutes is ignored (safety net for sessions that
   ended without `SessionEnd`).
 - Hooks: `UserPromptSubmit`, `PreToolUse` → working; `Notification` →
-  alerting; `Stop` → chilling; `SessionEnd` → remove.
+  alerting only for prompts that need the user (`permission_prompt`,
+  `elicitation_dialog`, `elicitation_url_dialog`, `agent_needs_input`; not the
+  `idle_prompt` sent ~60 s after every turn); `Stop` → chilling; `SessionEnd` →
+  remove.
 - The daemon watches the sessions directory (poll ≤1 s) and reacts on change.
 
 ### Refresh cadence

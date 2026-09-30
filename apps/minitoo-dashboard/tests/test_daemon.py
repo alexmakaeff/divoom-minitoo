@@ -78,6 +78,17 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T + 2)
         self.assertEqual(len(self.sends()), 2)
 
+    def test_identical_frame_resent_periodically(self):
+        dash = self.make()
+        t = T
+        dash.tick(t)
+        while t + 20 < T + 300:  # last tick at T+280, before the resend is due
+            t += 20
+            dash.tick(t)
+        self.assertEqual(len(self.sends()), 1)
+        dash.tick(T + 310)
+        self.assertEqual(len(self.sends()), 2)
+
     def test_alert_uses_clauddy_face_then_returns(self):
         dash = self.make()
         dash.tick(T)

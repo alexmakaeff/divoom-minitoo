@@ -11,8 +11,13 @@ from xml.sax.saxutils import escape
 
 from . import store
 
-HOOK_EVENTS = (("UserPromptSubmit", "working"), ("PreToolUse", "working"), ("Notification", "alerting"),
-               ("Stop", "chilling"), ("SessionEnd", "end"))
+# Alert only when Claude actually asks something. Claude Code also sends an
+# idle_prompt notification ~60 s after every finished turn; treating that as an
+# alert would hide the dashboard almost all the time.
+ALERT_MATCHER = "permission_prompt|elicitation_dialog|elicitation_url_dialog|agent_needs_input"
+HOOK_EVENTS = (("UserPromptSubmit", "working", None), ("PreToolUse", "working", None),
+               ("Notification", "alerting", ALERT_MATCHER), ("Stop", "chilling", None),
+               ("SessionEnd", "end", None))
 CLAUDDY_MARK = "clauddy-hook.sh"
 
 
@@ -51,11 +56,14 @@ def install_hooks(settings: dict, hook_path: str, replace_clauddy: bool = False)
     s = copy.deepcopy(settings)
     removed = _remove(s, lambda c: CLAUDDY_MARK in c) if replace_clauddy else []
     hooks = s.setdefault("hooks", {})
-    for event, arg in HOOK_EVENTS:
+    for event, arg, matcher in HOOK_EVENTS:
         groups = hooks.setdefault(event, [])
         if any(hook_path in c for g in groups for c in _commands(g)):
             continue
-        groups.append({"hooks": [{"type": "command", "command": f'"{hook_path}" {arg}'}]})
+        group: dict = {"hooks": [{"type": "command", "command": f'"{hook_path}" {arg}'}]}
+        if matcher:
+            group = {"matcher": matcher, **group}
+        groups.append(group)
     return s, removed
 
 
@@ -106,9 +114,22 @@ def render_template(src: Path, dst: Path, mapping: Dict[str, str], xml: bool = F
     Path(dst).write_text(text, encoding="utf-8")
 
 
+class SettingsError(Exception):
+    pass
+
+
 def _load(path: Path) -> dict:
-    data = store.read_json(path)
-    return data if isinstance(data, dict) else {}
+    try:
+        text = Path(path).read_text(encoding="utf-8")
+    except FileNotFoundError:
+        return {}
+    try:
+        data = json.loads(text) if text.strip() else {}
+    except ValueError as exc:
+        raise SettingsError(f"{path} is not valid JSON ({exc}); fix it and re-run. Nothing was changed.")
+    if not isinstance(data, dict):
+        raise SettingsError(f"{path} is not a JSON object; fix it and re-run. Nothing was changed.")
+    return data
 
 
 def _save(path: Path, data: dict) -> None:
@@ -139,7 +160,14 @@ def main(argv: Optional[List[str]] = None) -> int:
     p.add_argument("--set", action="append", default=[])
     p.add_argument("--xml", action="store_true")
     args = parser.parse_args(argv)
+    try:
+        return _run(args)
+    except SettingsError as exc:
+        print(f"error: {exc}", file=sys.stderr)
+        return 2
 
+
+def _run(args) -> int:
     if args.command == "has-clauddy":
         return 0 if has_clauddy(_load(args.settings)) else 1
     if args.command == "install-hooks":

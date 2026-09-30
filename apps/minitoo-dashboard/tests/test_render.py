@@ -63,6 +63,18 @@ class PagesTest(unittest.TestCase):
         b = [p.tobytes() for p in render.render_pages(model())]
         self.assertEqual(a, b)
 
+    def test_big_percent_fits_before_label(self):
+        for text in ("23%", "100%", "--"):
+            self.assertLessEqual(render.fit_font(text, 78).getlength(text), 78, text)
+        self.assertEqual(render.fit_font("23%", 78).size, 24)
+
+    def test_full_limit_does_not_touch_label_column(self):
+        full = ClaudeView(Window(100.0, 600, False), Window(100.0, 3600, False), None, True)
+        page = render.render_pages(model(event=None, weather=None, claude=full))[0]
+        for x in range(80, 86):
+            for y in range(20, 45):
+                self.assertEqual(page.getpixel((x, y)), render.BLACK, (x, y))
+
     def test_alert_page(self):
         page = render.render_alert("en")
         self.assertEqual(page.size, (160, 128))

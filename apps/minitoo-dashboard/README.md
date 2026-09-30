@@ -26,7 +26,7 @@ The device cycles through the pages by itself (8 s each by default):
   5-hour window resets.
 - **Status badge** (bottom right on every page): orange while Claude is
   working, grey when it is idle.
-- **Alert**: when Claude needs you (permission prompt, waiting for input), the
+- **Alert**: when Claude asks you something (a permission prompt or a question), the
   screen switches to Clauddy's `alerting` face instantly. Without Clauddy, a
   red full-screen alert frame is shown instead.
 

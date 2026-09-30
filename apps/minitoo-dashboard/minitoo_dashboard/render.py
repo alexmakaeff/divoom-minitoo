@@ -92,6 +92,13 @@ def wrap(text: str, f: ImageFont.FreeTypeFont, max_width: int, max_lines: int) -
     return lines
 
 
+def fit_font(text: str, max_width: int, sizes=(24, 16, 8)) -> ImageFont.FreeTypeFont:
+    for size in sizes:
+        if font(size).getlength(text) <= max_width:
+            return font(size)
+    return font(sizes[-1])
+
+
 def _fit(text: str, f: ImageFont.FreeTypeFont, max_width: int) -> str:
     return (wrap(text, f, max_width, 1) or [""])[0]
 
@@ -184,7 +191,9 @@ def _claude_page(m: DashboardModel) -> Image.Image:
     if not c.has_data:
         d.text((6, 56), i18n.t(lang, "no_data"), font=font(8), fill=WHITE)
         return img
-    d.text((6, 20), _pct(c.five), font=font(24), fill=ORANGE)
+    big = _pct(c.five)
+    big_font = fit_font(big, 78)  # "100%" at 24 px would run into the label column at x=86
+    d.text((6, 20 + (24 - big_font.size) // 2), big, font=big_font, fill=ORANGE)
     d.text((86, 22), i18n.t(lang, "five_hour"), font=font(8), fill=DIM)
     if c.five.is_reset:
         d.text((86, 34), _fit(i18n.t(lang, "reset"), font(8), 70), font=font(8), fill=DIM)

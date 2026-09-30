@@ -18,6 +18,7 @@ WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
 WAKE_JUMP = 30
 HEARTBEAT = 60
+RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
 BACKOFF = (30, 60, 120, 300)
 
 
@@ -60,6 +61,7 @@ class Dashboard:
         self.device: Any = None
         self.device_mac: Optional[str] = None
         self.last_blob: Optional[bytes] = None
+        self.last_blob_sent = 0.0
         self.alert_shown = False
         self.paused = False
         self.status = "chilling"
@@ -143,10 +145,10 @@ class Dashboard:
     def _show_dashboard(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.alert_shown = False
         blob = self.dashboard_blob(self.sources.model(cfg, self.status, now), cfg)
-        if blob == self.last_blob:
+        if blob == self.last_blob and now - self.last_blob_sent < RESEND_EVERY:
             return
         self._send(cfg, device, blob)
-        self.last_blob = blob
+        self.last_blob, self.last_blob_sent = blob, now
 
     def _send(self, cfg: config_mod.Config, device: Any, blob: bytes) -> None:
         path = self.home / "cache" / "frame.raw"

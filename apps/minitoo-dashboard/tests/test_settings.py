@@ -21,9 +21,16 @@ class HooksTest(unittest.TestCase):
     def test_install_on_empty_is_idempotent(self):
         s, removed = settings.install_hooks({}, HOOK)
         s, _ = settings.install_hooks(s, HOOK)
-        for event, arg in settings.HOOK_EVENTS:
+        for event, arg, _ in settings.HOOK_EVENTS:
             self.assertEqual(commands(s, event), [f'"{HOOK}" {arg}'])
         self.assertEqual(removed, [])
+
+    def test_alert_only_on_prompts_not_idle(self):
+        s, _ = settings.install_hooks({}, HOOK)
+        group = s["hooks"]["Notification"][0]
+        self.assertIn("permission_prompt", group["matcher"])
+        self.assertNotIn("idle_prompt", group["matcher"])
+        self.assertNotIn("matcher", s["hooks"]["Stop"][0])
 
     def test_preserves_unrelated_hooks(self):
         s, _ = settings.install_hooks({"hooks": {"PreToolUse": [OTHER]}, "theme": "dark"}, HOOK)
@@ -86,6 +93,25 @@ class CliTest(unittest.TestCase):
             self.assertEqual(commands(data, "Stop"), [CLAUDDY["command"]])
             self.assertNotIn("statusLine", data)
             self.assertFalse(saved.exists())
+
+    def test_invalid_settings_file_is_left_untouched(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sfile = Path(tmp) / "settings.json"
+            original = '{"model": "opus", // comment\n}'
+            sfile.write_text(original)
+            with contextlib.redirect_stderr(io.StringIO()) as err:
+                code = settings.main(["install-hooks", "--settings", str(sfile), "--hook", HOOK,
+                                      "--saved", str(Path(tmp) / "saved.json")])
+            self.assertEqual(code, 2)
+            self.assertIn("not valid JSON", err.getvalue())
+            self.assertEqual(sfile.read_text(), original)
+
+    def test_missing_settings_file_starts_empty(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            sfile = Path(tmp) / "settings.json"
+            settings.main(["install-hooks", "--settings", str(sfile), "--hook", HOOK,
+                           "--saved", str(Path(tmp) / "saved.json")])
+            self.assertIn("hooks", json.loads(sfile.read_text()))
 
     def test_render_template_xml(self):
         with tempfile.TemporaryDirectory() as tmp:

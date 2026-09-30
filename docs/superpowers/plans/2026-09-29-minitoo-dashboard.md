@@ -3561,6 +3561,7 @@ Run `minitoo-dashboard status` after each item; record pass/fail:
 7. Switch the MiniToo off for 2 minutes, then on: the dashboard reappears within 5 minutes without intervention (`logs` shows backoff).
 8. `minitoo-dashboard pause` frees the device (phone app can connect); `resume` brings the dashboard back.
 9. Close the Mac lid for 5 minutes and reopen: the dashboard refreshes immediately.
+10. Send a message from Claude Code in VS Code; `minitoo-dashboard status` shows "Claude limits: captured …s ago" (records whether the VS Code extension runs the status line; update README troubleshooting either way).
 
 - [ ] **Step 7: Fix anything that failed, re-run tests, commit, update handoff**
 

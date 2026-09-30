@@ -257,6 +257,13 @@ Consequences: the 0x8B display path is confirmed. The joystick follow-up (§10)
 is not possible as designed. Item 5 affects where Claude limits come from; see
 the owner's decision below.
 
+**Owner decision (2026-09-30), item 5:** keep the documented status-line source.
+Verified in a terminal `claude` session (v2.1.241): `rate_limits.five_hour` and
+`seven_day` arrive for the owner's Pro plan. Limits refresh only while a client
+that runs the status line is in use; otherwise the Claude page shows the last
+values with "as of HH:MM". Whether the VS Code extension runs the status line is
+checked during the hardware checklist.
+
 ## 9. Distribution
 
 Everything lives in `apps/minitoo-dashboard/` with an English README and

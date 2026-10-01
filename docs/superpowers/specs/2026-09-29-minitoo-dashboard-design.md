@@ -96,6 +96,17 @@ Keychain grant covers only it, not `/usr/bin/security`. Failures keep the last
 data and are shown by `status`. The status line stays installed as a fallback.
 Verified on the owner's Pro account on 2026-09-30.
 
+### Amendment (2026-10-01): reminders in the event row
+
+The event row also shows open reminders from the Reminders app, read by the
+calendar helper (separate Reminders permission). Priority, as the owner chose:
+(a) the next timed item today, either an event or a timed reminder, earliest
+first; (c) otherwise the oldest overdue reminder (a timed reminder past its
+time, or a date-only reminder from an earlier day); (b) otherwise a date-only
+reminder due today. "+N" counts the other open reminders of all three kinds and
+is shown with events too. Reminders get a checkbox; "OVERDUE" is yellow, because
+red belongs to the Claude alert. `CALENDARS` also filters Reminders lists.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

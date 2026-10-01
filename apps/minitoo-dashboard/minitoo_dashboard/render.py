@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 
 from . import i18n, paths
-from .sources.calendar import Event
+from .sources.calendar import Item
 from .sources.claude import ClaudeView, Window
 from .sources.weather import WeatherView
 
@@ -38,7 +38,7 @@ class DashboardModel:
     temp_unit: str
     city_name: str
     weather: Optional[WeatherView]
-    event: Optional[Event]
+    event: Optional[Item]  # what the event row shows (event or reminder)
     claude: ClaudeView
 
 
@@ -162,16 +162,30 @@ def _event_row(d, m: DashboardModel) -> None:
     if e is None:
         d.text((4, 58), i18n.t(lang, "none_left"), font=font(8), fill=DIM)
         return
-    if e.start <= m.now:
+    box = WHITE
+    if e.kind == "overdue":
+        d.text((4, 49), i18n.t(lang, "overdue"), font=font(8), fill=YELLOW)
+        title_y, counter_y, box = 64, 49, YELLOW
+    elif e.kind == "today":
+        d.text((4, 49), i18n.t(lang, "today"), font=font(8), fill=BLUE)
+        title_y, counter_y = 64, 49
+    elif e.start <= m.now:
         d.text((4, 47), i18n.t(lang, "now"), font=font(8), fill=BLUE)
         d.text((4, 57), i18n.t(lang, "until", t=_hhmm(e.end)), font=font(8), fill=BLUE)
-        title_y = 70
+        title_y, counter_y = 70, 47
     else:
         d.text((4, 47), _hhmm(e.start), font=font(16), fill=BLUE)
         left = i18n.t(lang, "in_short", d=i18n.duration(max(60, e.start - m.now), lang))
-        d.text((88, 51), _fit(left, font(8), 68), font=font(8), fill=BLUE)
-        title_y = 68
-    d.text((4, title_y), _fit(clean(e.title), font(8), 152), font=font(8), fill=WHITE)
+        d.text((88, 51), _fit(left, font(8), 46), font=font(8), fill=BLUE)
+        title_y, counter_y = 68, 51
+    if e.more:
+        counter = f"+{e.more}"
+        d.text((156 - int(font(8).getlength(counter)), counter_y), counter, font=font(8), fill=DIM)
+    if e.kind == "event":
+        d.text((4, title_y), _fit(clean(e.title), font(8), 152), font=font(8), fill=WHITE)
+    else:  # reminders get a checkbox, like in the Reminders app
+        d.rectangle([4, title_y, 11, title_y + 7], outline=box)
+        d.text((16, title_y), _fit(clean(e.title), font(8), 140), font=font(8), fill=WHITE)
 
 
 def _pct(window: Window) -> str:
@@ -226,6 +240,6 @@ def demo_model(now: float, lang: str, status: str = "working") -> DashboardModel
         now=now, status=status, lang=lang, temp_unit="celsius",
         city_name="Москва" if lang == "ru" else "Moscow",
         weather=WeatherView(12, 15, 8, "cloudy", "18:00", "rain", None),
-        event=Event("Созвон с командой" if lang == "ru" else "Team sync", now + 25 * 60, now + 85 * 60, "Work"),
+        event=Item("event", "Созвон с командой" if lang == "ru" else "Team sync", now + 25 * 60, now + 85 * 60),
         claude=ClaudeView(Window(23.0, 7800, False), Window(41.0, 3 * 86400, False), None, True),
     )

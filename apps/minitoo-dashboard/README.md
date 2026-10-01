@@ -20,10 +20,17 @@ thing that grabs your attention is the alert.
 - **Weather** (top): current temperature, today's high/low, and when rain or
   snow is expected (otherwise the sky condition), for a city you choose. Data
   from [Open-Meteo](https://open-meteo.com/) (no key, no account).
-- **Next event** (middle): the next timed event from macOS Calendar that starts
-  later today, or the one in progress ("NOW / until 15:00"). All-day events are
-  ignored. Tomorrow's events appear after midnight. With nothing left today the
-  row says "No events left".
+- **Next event or reminder** (middle), from macOS Calendar and Reminders:
+  1. the next timed item today, whether a calendar event or a reminder with a
+     time, or the event in progress ("NOW / until 15:00");
+  2. otherwise the oldest **overdue** reminder (yellow "OVERDUE"), including a
+     timed reminder from today whose time has passed;
+  3. otherwise a reminder due **today** without a time ("TODAY").
+
+  Reminders get a checkbox. "+N" on the right counts your other open
+  reminders: timed today, overdue and date-only today. Completed reminders,
+  all-day events and anything due tomorrow are not shown. With nothing to
+  show, the row says "No events left".
 - **Claude limits** (bottom, Pro/Max): 5-hour and weekly usage bars, and time
   until the 5-hour window resets.
 - **Status badge** (bottom right): orange while Claude is working, grey when it
@@ -56,7 +63,8 @@ The installer asks for the on-screen language and the weather city, then:
 
 1. writes `~/.minitoo-dashboard/config` (the device's Bluetooth MAC is taken
    from Clauddy's config or detected automatically);
-2. builds a small calendar helper and asks macOS for Calendar access;
+2. builds a small calendar helper and asks macOS for Calendar and Reminders
+   access;
 3. adds hooks to `~/.claude/settings.json` (after making a backup). If Clauddy
    hooks are present, it asks before replacing them;
 4. installs a status line command that captures Claude limits. If you already
@@ -94,7 +102,7 @@ every second.
 | `CITY_NAME`, `CITY_LAT`, `CITY_LON` | from installer | weather location (use `minitoo-dashboard city`) |
 | `TEMP_UNIT` | from macOS settings | `celsius` or `fahrenheit` |
 | `LANG` | `en` | on-screen language: `en` or `ru` |
-| `CALENDARS` | `all` | comma-separated calendar names to include |
+| `CALENDARS` | `all` | comma-separated calendar and Reminders list names to include |
 | `SEND_DELAY_MS` | `20` | pause between Bluetooth chunks (0–200) |
 | `CLAUDE_LIMITS` | `statusline` | `statusline`, or `direct` to also ask Anthropic every 5 min (see below) |
 
@@ -155,9 +163,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   device off, out of range or held by the phone, the daemon retries after
   30 s, 1, 2 and 5 minutes, and recovers by itself. `minitoo-dashboard logs`
   shows the details.
-- **"No events left" although you have one.** Nothing timed is left today, or Calendar access was not
+- **"No events left" although you have something today.** Nothing timed is left today, or Calendar access was not
   granted: System Settings > Privacy & Security > Calendars > `calendar-helper`.
-  Reminders from the Reminders app are not events and are not shown.
+  Reminders need their own permission: System Settings > Privacy & Security >
+  Reminders > `calendar-helper` (`minitoo-dashboard status` shows both).
 - **Claude row says "no data yet" or shows an old "as of" time.** Limits come
   from Claude Code's status line, which runs in the terminal `claude` CLI. The
   Claude desktop app's Code tab and the VS Code extension do not run status

@@ -55,18 +55,76 @@ class FetchEventsTest(unittest.TestCase):
     def test_ok(self):
         with tempfile.TemporaryDirectory() as tmp:
             payload = {"status": "ok", "events": [{"title": "A", "start": 1, "end": 2, "calendar": "W"}]}
-            status, events = calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run(payload))
-            self.assertEqual((status, len(events)), ("ok", 1))
+            status, events, rstatus, reminders = calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run(payload))
+            self.assertEqual((status, len(events), rstatus, reminders), ("ok", 1, "unknown", []))
 
     def test_denied(self):
         with tempfile.TemporaryDirectory() as tmp:
-            status, events = calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run({"status": "denied"}))
-            self.assertEqual((status, events), ("denied", []))
+            result = calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run({"status": "denied"}))
+            self.assertEqual(result[:2], ("denied", []))
 
     def test_no_output_is_error(self):
         with tempfile.TemporaryDirectory() as tmp:
-            self.assertEqual(calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run(None)), ("error", []))
+            self.assertEqual(calendar.fetch_events(Path("/x.app"), Path(tmp), run=self.fake_run(None)),
+                             ("error", [], "error", []))
 
 
 if __name__ == "__main__":
     unittest.main()
+
+
+def rem(title, hour=None, minute=0, days=0, cal="Reminders"):
+    """Timed reminder at hour:minute, or a date-only one (hour=None) due that day."""
+    if hour is None:
+        return calendar.Reminder(title, ts(0, days=days), True, cal)
+    return calendar.Reminder(title, ts(hour, minute, days=days), False, cal)
+
+
+class SelectItemTest(unittest.TestCase):
+    def test_timed_reminder_competes_with_events_by_time(self):
+        item = calendar.select_item([LATER], [rem("Bread", 21)], ts(20))
+        self.assertEqual((item.kind, item.title, item.start), ("reminder", "Bread", ts(21)))
+
+    def test_event_first_when_earlier_and_counts_reminders(self):
+        item = calendar.select_item([ONGOING], [rem("Bread", 21), rem("Mom"), rem("Bill", 9, days=-1)], ts(20))
+        self.assertEqual((item.kind, item.title, item.more), ("event", "Deep work", 3))
+
+    def test_overdue_when_nothing_timed_ahead(self):
+        reminders = [rem("Mom"), rem("Bill", 9, days=-2), rem("Tax", 10, days=-1)]
+        item = calendar.select_item([PAST], reminders, ts(20))
+        self.assertEqual((item.kind, item.title, item.more), ("overdue", "Bill", 2))
+
+    def test_timed_reminder_becomes_overdue_after_its_time(self):
+        item = calendar.select_item([], [rem("Bread", 19)], ts(19, 5))
+        self.assertEqual((item.kind, item.title, item.more), ("overdue", "Bread", 0))
+
+    def test_date_only_from_earlier_day_is_overdue(self):
+        item = calendar.select_item([], [rem("Old", days=-1)], ts(20))
+        self.assertEqual(item.kind, "overdue")
+
+    def test_today_without_time_last(self):
+        item = calendar.select_item([], [rem("Mom"), rem("Cat")], ts(20))
+        self.assertEqual((item.kind, item.title, item.more), ("today", "Cat", 1))
+
+    def test_future_reminders_ignored(self):
+        self.assertIsNone(calendar.select_item([], [rem("Next", 9, days=1), rem("Later", days=2)], ts(20)))
+
+    def test_list_filter_applies_to_reminders(self):
+        item = calendar.select_item([], [rem("Work", cal="Work"), rem("Home", cal="Home")], ts(20), ["Home"])
+        self.assertEqual((item.title, item.more), ("Home", 0))
+
+    def test_events_only_behave_as_before(self):
+        item = calendar.select_item([LATER, PAST, ONGOING], [], ts(20))
+        self.assertEqual((item.kind, item.title, item.start, item.end, item.more),
+                         ("event", "Deep work", ONGOING.start, ONGOING.end, 0))
+
+    def test_parse_reminders_skips_malformed(self):
+        raw = [{"title": "A", "due": 5, "all_day": True, "calendar": "R"}, {"title": "B"}, 7]
+        self.assertEqual(calendar.parse_reminders(raw), [calendar.Reminder("A", 5.0, True, "R")])
+
+    def test_fetch_returns_reminders(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            payload = {"status": "ok", "events": [], "reminders_status": "ok",
+                       "reminders": [{"title": "A", "due": 1, "all_day": False, "calendar": "R"}]}
+            result = calendar.fetch_events(Path("/x.app"), Path(tmp), run=FetchEventsTest().fake_run(payload))
+            self.assertEqual(result, ("ok", [], "ok", payload["reminders"]))

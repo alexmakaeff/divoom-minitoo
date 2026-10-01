@@ -33,6 +33,10 @@ cat > "$APP/Contents/Info.plist" <<'PLIST'
     <string>Show today's next event on the MiniToo dashboard.</string>
     <key>NSCalendarsUsageDescription</key>
     <string>Show today's next event on the MiniToo dashboard.</string>
+    <key>NSRemindersFullAccessUsageDescription</key>
+    <string>Show today's and overdue reminders on the MiniToo dashboard.</string>
+    <key>NSRemindersUsageDescription</key>
+    <string>Show today's and overdue reminders on the MiniToo dashboard.</string>
 </dict>
 </plist>
 PLIST

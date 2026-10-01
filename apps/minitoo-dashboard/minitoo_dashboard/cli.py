@@ -91,6 +91,10 @@ def cmd_status(args) -> int:
     hint = "  → allow calendar-helper in System Settings > Privacy & Security > Calendars" \
         if cal_status in ("denied", "not_determined") else ""
     print(f"Calendar:      {cal_status}{hint}")
+    rem_status = cal.get("reminders_status", "unknown")
+    rem_hint = "  → allow calendar-helper in System Settings > Privacy & Security > Reminders" \
+        if rem_status in ("denied", "not_determined") else ""
+    print(f"Reminders:     {rem_status}{rem_hint}")
     c = store.read_json(cache / "claude.json")
     captured = f"captured {_ago(c.get('captured_at'), now)} via {c.get('source', 'statusline')}" \
         if isinstance(c, dict) else "no data yet"

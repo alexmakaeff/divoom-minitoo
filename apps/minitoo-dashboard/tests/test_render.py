@@ -1,6 +1,7 @@
 import unittest
 
 from minitoo_dashboard import i18n, render
+from minitoo_dashboard.sources.calendar import Item
 from minitoo_dashboard.sources.claude import ClaudeView, Window
 
 NOW = 1_790_600_000.0
@@ -52,6 +53,36 @@ class ScreenTest(unittest.TestCase):
         m = model()
         m.event.start = NOW - 600
         self.assertEqual(render.render_screen(m).size, (160, 128))
+
+    def has_color(self, img, box, color):
+        x0, y0, x1, y1 = box
+        return any(img.getpixel((x, y)) == color for x in range(x0, x1) for y in range(y0, y1))
+
+    def test_reminder_has_checkbox(self):
+        corners = [(4, 68), (11, 68), (4, 75), (11, 75)]
+        img = render.render_screen(model(event=Item("reminder", "", NOW + 3600, NOW + 3600)))
+        self.assertEqual([img.getpixel(p) for p in corners], [render.WHITE] * 4)
+        event_img = render.render_screen(model(event=Item("event", "", NOW + 3600, NOW + 7200)))
+        self.assertNotEqual([event_img.getpixel(p) for p in corners], [render.WHITE] * 4)
+
+    def test_overdue_label_is_yellow_not_red(self):
+        img = render.render_screen(model(lang="ru", event=Item("overdue", "Счёт", NOW - 7200, NOW - 7200)))
+        self.assertTrue(self.has_color(img, (4, 46, 100, 58), render.YELLOW))
+        self.assertFalse(self.has_color(img, (0, 44, 160, 82), render.RED))
+
+    def test_today_reminder_has_its_own_label(self):
+        today = render.render_screen(model(event=Item("today", "Call mom", NOW - 3600, NOW - 3600)))
+        as_event = render.render_screen(model(event=Item("event", "Call mom", NOW - 3600, NOW - 3600)))
+        crop = (4, 44, 150, 66)
+        self.assertTrue(lit(today, crop))
+        self.assertNotEqual(today.crop(crop).tobytes(), as_event.crop(crop).tobytes())
+
+    def test_counter_shown_only_when_more(self):
+        counter = (136, 46, 156, 60)
+        with_more = model()
+        with_more.event.more = 3
+        self.assertTrue(lit(render.render_screen(with_more), counter))
+        self.assertFalse(lit(render.render_screen(model()), counter))
 
     def test_emoji_and_long_title(self):
         m = model(lang="ru")

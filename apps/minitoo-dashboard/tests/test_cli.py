@@ -73,6 +73,14 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 0)
         self.assertIn("not running", out)
 
+    def test_status_shows_reminders_access(self):
+        from minitoo_dashboard import store
+        store.write_json_atomic(self.home / "cache" / "calendar.json",
+                                {"status": "ok", "events": [], "reminders_status": "denied", "reminders": []})
+        _, out = self.run_cli(["status"])
+        self.assertIn("Reminders:     denied", out)
+        self.assertIn("Privacy & Security > Reminders", out)
+
     def test_preview_demo(self):
         out_dir = self.home / "preview"
         code, _ = self.run_cli(["preview", "--demo", "--out", str(out_dir)])

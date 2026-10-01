@@ -35,6 +35,13 @@ class CollectTest(unittest.TestCase):
         self.assertFalse(m.claude.has_data)
         self.assertEqual((m.status, m.city_name), ("working", "Moscow, Russia"))
 
+    def test_model_includes_reminders(self):
+        store.write_json_atomic(self.cache / "calendar.json", {
+            "status": "ok", "events": [], "reminders_status": "ok",
+            "reminders": [{"title": "Bread", "due": NOW - 60, "all_day": False, "calendar": "R"}]})
+        item = self.sources().model(CFG, "chilling", NOW).event
+        self.assertEqual((item.kind, item.title), ("overdue", "Bread"))
+
     def test_weather_for_other_city_ignored(self):
         store.write_json_atomic(self.cache / "weather.json", {**WEATHER, "lat": 1.0})
         self.assertIsNone(self.sources().model(CFG, "chilling", NOW).weather)
@@ -45,11 +52,12 @@ class CollectTest(unittest.TestCase):
 
     def test_refresh_writes_caches(self):
         src = self.sources(fetch_weather=lambda lat, lon, unit, now: dict(WEATHER, fetched_at=now),
-                           fetch_events=lambda app, out: ("ok", []))
+                           fetch_events=lambda app, out: ("ok", [], "denied", []))
         src.refresh_weather(CFG, NOW)
         src.refresh_calendar(CFG, NOW)
         self.assertEqual(store.read_json(self.cache / "weather.json")["fetched_at"], NOW)
         self.assertEqual(store.read_json(self.cache / "calendar.json")["status"], "ok")
+        self.assertEqual(store.read_json(self.cache / "calendar.json")["reminders_status"], "denied")
 
     def test_refresh_claude_writes_cache(self):
         rec = {"captured_at": NOW, "source": "direct",

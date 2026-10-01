@@ -32,9 +32,10 @@ class Sources:
 
     def refresh_calendar(self, cfg: Config, now: float) -> None:
         self.cache_dir.mkdir(parents=True, exist_ok=True)
-        state, events = self.fetch_events(self.helper_app, self.cache_dir)
+        state, events, reminders_state, reminders = self.fetch_events(self.helper_app, self.cache_dir)
         store.write_json_atomic(self.cache_dir / "calendar.json",
-                                {"fetched_at": now, "status": state, "events": events})
+                                {"fetched_at": now, "status": state, "events": events,
+                                 "reminders_status": reminders_state, "reminders": reminders})
 
     def refresh_claude(self, now: float) -> None:
         store.write_json_atomic(self.cache_dir / "claude.json", self.fetch_claude(now))
@@ -44,10 +45,12 @@ class Sources:
         if isinstance(wcache, dict) and (wcache.get("lat"), wcache.get("lon")) != (cfg.city_lat, cfg.city_lon):
             wcache = None
         cal = store.read_json(self.cache_dir / "calendar.json")
-        events = calendar.parse_events(cal.get("events")) if isinstance(cal, dict) and cal.get("status") == "ok" else []
+        cal = cal if isinstance(cal, dict) else {}
+        events = calendar.parse_events(cal.get("events")) if cal.get("status") == "ok" else []
+        reminders = calendar.parse_reminders(cal.get("reminders")) if cal.get("reminders_status") == "ok" else []
         return render.DashboardModel(
             now=now, status=status, lang=cfg.lang, temp_unit=cfg.temp_unit, city_name=cfg.city_name,
             weather=weather.weather_view(wcache, now) if cfg.has_city else None,
-            event=calendar.select_event(events, now, cfg.calendar_list()),
+            event=calendar.select_item(events, reminders, now, cfg.calendar_list()),
             claude=claude.claude_view(store.read_json(self.cache_dir / "claude.json"), now),
         )

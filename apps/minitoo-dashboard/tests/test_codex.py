@@ -103,7 +103,8 @@ class CodexTest(unittest.TestCase):
         path = self.write("a.jsonl", [limits(NOW - 30)])
         scanner = codex.Scanner(self.root)
         scanner.scan(NOW)
-        scanner.memo[str(path)] = (scanner.memo[str(path)][0], ({"captured_at": 1.0, "five_hour": {}}, None))
+        stamp, _, end = scanner.memo[str(path)]
+        scanner.memo[str(path)] = (stamp, ({"captured_at": 1.0, "five_hour": {}}, None), end)
         self.assertEqual(scanner.scan(NOW + 1)[0]["captured_at"], 1.0)
 
     def test_old_conversation_found_on_full_walk(self):
@@ -124,8 +125,50 @@ class CodexTest(unittest.TestCase):
         path = self.write("2026/08/01/rollout-old.jsonl", [turn("task_started", NOW - 10)])
         scanner = codex.Scanner(self.root)
         self.assertTrue(scanner.scan(NOW)[1])
-        self.write("2026/08/01/rollout-old.jsonl", [turn("task_complete", NOW + 5)], mtime=NOW + 5)
+        self.append(path, json.dumps(turn("task_complete", NOW + 5)) + "\n", NOW + 5)
         self.assertFalse(scanner.scan(NOW + 5)[1])
+
+    def append(self, path, text, mtime):
+        with open(path, "a") as fh:
+            fh.write(text)
+        os.utime(path, (mtime, mtime))
+
+    def test_working_survives_big_output(self):
+        path = self.write("a.jsonl", [turn("task_started", NOW - 10), limits(NOW - 9)])
+        scanner = codex.Scanner(self.root)
+        self.assertTrue(scanner.scan(NOW)[1])
+        big = {"timestamp": iso(NOW), "type": "response_item", "payload": {"output": "x" * (5 * 1024 * 1024)}}
+        self.append(path, json.dumps(big) + "\n", NOW + 5)
+        record, working = scanner.scan(NOW + 5)
+        self.assertTrue(working)
+        self.assertEqual(record["captured_at"], NOW - 9)
+        self.append(path, json.dumps(turn("task_complete", NOW + 9)) + "\n", NOW + 10)
+        self.assertFalse(scanner.scan(NOW + 10)[1])
+
+    def test_half_written_line_read_once_complete(self):
+        line = json.dumps(limits(NOW - 5, h5=77.0)) + "\n"
+        path = self.write("a.jsonl", [limits(NOW - 30)], tail=line[:40])
+        scanner = codex.Scanner(self.root)
+        self.assertEqual(scanner.scan(NOW)[0]["five_hour"]["used_percentage"], 58.0)
+        self.append(path, line[40:], NOW + 5)
+        self.assertEqual(scanner.scan(NOW + 5)[0]["five_hour"]["used_percentage"], 77.0)
+
+    def test_truncated_file_rescanned(self):
+        path = self.write("a.jsonl", [turn("task_started", NOW - 10)])
+        scanner = codex.Scanner(self.root)
+        self.assertTrue(scanner.scan(NOW)[1])
+        self.write("a.jsonl", [], mtime=NOW + 5)
+        self.assertFalse(scanner.scan(NOW + 5)[1])
+
+    def test_merge_survives_corrupt_cache(self):
+        rec = {"captured_at": NOW, "seven_day": {"used_percentage": 2.0, "resets_at": NOW + 9}}
+        self.assertEqual(codex.merge({"captured_at": "junk"}, rec, False, NOW), dict(rec, working=False, checked_at=NOW))
+
+    def test_sessions_dir_is_fixed(self):
+        from unittest import mock
+        from minitoo_dashboard import paths
+        with mock.patch.dict(os.environ, {"CODEX_HOME": "/elsewhere"}):
+            self.assertEqual(paths.codex_sessions_dir(), Path.home() / ".codex" / "sessions")
 
     def test_needs_write(self):
         old = {"captured_at": 1.0, "working": False, "checked_at": NOW}

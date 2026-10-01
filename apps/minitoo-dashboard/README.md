@@ -139,13 +139,15 @@ every second.
 ## Where Codex limits come from
 
 Every Codex client (the ChatGPT desktop app, the VS Code extension, the CLI)
-writes session logs to `~/.codex/sessions` (or `$CODEX_HOME/sessions`), and
-those logs include the subscription's 5-hour and weekly usage. With `CODEX=on`
-the dashboard reads the end of the logs changed in the last 30 minutes every
-5 seconds. It needs no credentials and makes no network requests.
+writes session logs to `~/.codex/sessions`, and those logs include the
+subscription's 5-hour and weekly usage. With `CODEX=on` the dashboard reads
+what was appended to the logs changed in the last 30 minutes, every 5 seconds.
+It needs no credentials and makes no network requests. A custom `CODEX_HOME`
+is not supported.
 
-- The numbers refresh only while you use Codex. Older numbers show "as of
-  HH:MM" under the Codex column.
+- The numbers refresh only while you use Codex. Numbers older than 10 minutes
+  show their time under the column instead of the reset time ("@14:05", or
+  "на 14:05" in Russian).
 - The square after "Codex" is teal while a Codex turn is running and grey
   otherwise.
 - Codex has no alert screen; only Claude's questions switch the screen.

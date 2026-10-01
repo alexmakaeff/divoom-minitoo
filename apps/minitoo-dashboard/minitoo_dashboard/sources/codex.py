@@ -19,6 +19,7 @@ FULL_WALK_EVERY = 60  # a resumed old conversation is noticed within this; in be
 REWRITE_EVERY = 30  # keep checked_at well inside WORKING_TTL without rewriting the cache every 5 s
 
 Result = Tuple[Optional[dict], Optional[bool]]
+Memo = Dict[str, Tuple[Tuple[float, int], Result, int]]  # path -> ((mtime, size), result, end of complete lines)
 
 
 def all_files(root: Path) -> Iterator[Path]:
@@ -49,22 +50,36 @@ def recent(paths: Iterable[Path], now: float, within: float = ACTIVE_WITHIN) -> 
     return found
 
 
-def lines_backwards(path: Path, limit: int = READ_LIMIT, chunk: int = CHUNK) -> Iterator[bytes]:
+def lines_backwards(path: Path, floor: int = 0, limit: int = READ_LIMIT,
+                    chunk: int = CHUNK) -> Iterator[Tuple[int, bytes]]:
+    """Yields (offset, line), newest first, down to `floor` (a line start) or `limit` bytes."""
     with open(path, "rb") as fh:
         pos = fh.seek(0, os.SEEK_END)
-        start = max(0, pos - limit)
-        head = b""
+        start = max(floor, pos - limit)
+        tail: List[bytes] = []  # pieces of a line whose start is not read yet, in file order
         while pos > start:
             step = min(chunk, pos - start)
             pos -= step
             fh.seek(pos)
-            parts = (fh.read(step) + head).split(b"\n")
-            head = parts[0]  # may continue in the previous chunk
-            for line in reversed(parts[1:]):
+            data = fh.read(step)
+            cut = data.rfind(b"\n")
+            if cut < 0:
+                tail.insert(0, data)
+                continue
+            line = data[cut + 1:] + b"".join(tail)
+            if line.strip():
+                yield pos + cut + 1, line
+            lines = data[:cut].split(b"\n")
+            offset = pos + cut
+            for line in reversed(lines[1:]):
+                offset -= len(line)
                 if line.strip():
-                    yield line
-        if start == 0 and head.strip():
-            yield head
+                    yield offset, line
+                offset -= 1
+            tail = [lines[0]]  # may continue in the previous chunk
+        line = b"".join(tail)
+        if start == floor and line.strip():
+            yield start, line
 
 
 def limits_record(rate_limits: Any, captured_at: float) -> Optional[dict]:
@@ -82,11 +97,27 @@ def limits_record(rate_limits: Any, captured_at: float) -> Optional[dict]:
     return record if len(record) > 1 else None
 
 
-def scan_file(path: Path) -> Result:
+def _last_byte(path: Path, size: int) -> bytes:
+    if size == 0:
+        return b""
+    with open(path, "rb") as fh:
+        fh.seek(size - 1)
+        return fh.read(1)
+
+
+def scan_file(path: Path, floor: int = 0) -> Tuple[Optional[dict], Optional[bool], int]:
+    """Newest limits record and turn state after byte `floor`, and where the complete lines end."""
     record: Optional[dict] = None
     working: Optional[bool] = None
+    end = floor
     try:
-        for raw in lines_backwards(path):
+        size = path.stat().st_size
+        complete = _last_byte(path, size) == b"\n"
+        end = max(floor, size) if complete else floor
+        for offset, raw in lines_backwards(path, floor):
+            if not complete:  # the last line is still being written: read it again next time
+                end, complete = offset, True
+                continue
             try:
                 obj = json.loads(raw)
             except ValueError:
@@ -106,17 +137,18 @@ def scan_file(path: Path) -> Result:
                 break
     except OSError:
         pass
-    return record, working
+    return record, working, end
 
 
 class Scanner:
-    """Finds recent session files without stat-ing the whole history every time."""
+    """Finds recent session files without stat-ing the whole history every time, and reads
+    only what was appended since the last look, so a huge tool output cannot hide a turn."""
 
     def __init__(self, root: Path):
         self.root = Path(root)
         self.walked_at: Optional[float] = None
         self.hot: Set[Path] = set()
-        self.memo: Dict[str, Tuple[Tuple[float, int], Result]] = {}
+        self.memo: Memo = {}
 
     def _files(self, now: float) -> List[Tuple[Path, os.stat_result]]:
         if self.walked_at is None or not 0 <= now - self.walked_at < FULL_WALK_EVERY:
@@ -128,16 +160,28 @@ class Scanner:
         self.hot = {path for path, _ in found}
         return found
 
+    def _result(self, path: Path, st: os.stat_result) -> Result:
+        key, stamp = str(path), (st.st_mtime, st.st_size)
+        prev = self.memo.get(key)
+        if prev is not None and prev[0] == stamp:
+            return prev[1]
+        if prev is not None and st.st_size >= prev[2]:  # appended since the last look
+            record, working, end = scan_file(path, prev[2])
+            old_record, old_working = prev[1]
+            result = (record or old_record, old_working if working is None else working)
+        else:  # first look, or the file was truncated
+            record, working, end = scan_file(path)
+            result = (record, working)
+        self.memo[key] = (stamp, result, end)
+        return result
+
     def scan(self, now: float) -> Tuple[Optional[dict], bool]:
         best: Optional[dict] = None
         working = False
         seen = set()
         for path, st in self._files(now):
-            key, stamp = str(path), (st.st_mtime, st.st_size)
-            seen.add(key)
-            if key not in self.memo or self.memo[key][0] != stamp:
-                self.memo[key] = (stamp, scan_file(path))
-            record, busy = self.memo[key][1]
+            seen.add(str(path))
+            record, busy = self._result(path, st)
             working = working or bool(busy)
             if record is not None and (best is None or record["captured_at"] > best["captured_at"]):
                 best = record
@@ -149,7 +193,10 @@ class Scanner:
 def merge(old: Any, record: Optional[dict], working: bool, now: float) -> dict:
     old = old if isinstance(old, dict) else {}
     limits = {k: old[k] for k in LIMIT_KEYS if k in old}
-    if record is not None and record["captured_at"] > float(limits.get("captured_at", 0)):
+    captured = limits.get("captured_at")
+    if not isinstance(captured, (int, float)):  # hand-edited or corrupt cache: start over
+        limits, captured = {}, 0
+    if record is not None and record["captured_at"] > captured:
         limits = record
     return dict(limits, working=working, checked_at=now)
 

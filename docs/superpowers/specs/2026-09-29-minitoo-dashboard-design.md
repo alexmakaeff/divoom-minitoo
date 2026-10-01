@@ -153,7 +153,12 @@ from the end, in chunks, until it has found what it needs or read 4 MB.
   conversation is noticed within a minute. `cache/codex.json` is rewritten only
   when something besides `checked_at` changed, or every 30 s.
 - A missing `~/.codex`, unreadable files, malformed lines or unknown formats
-  keep the last data and are logged as a warning; they never break the screen.
+  keep the last data silently; they never break the screen. Only `~/.codex` is
+  read: `CODEX_HOME` from the user's shell does not reach the launchd daemon.
+- After the first look at a file (last 4 MB), only bytes appended since then are
+  read, starting at the end of the last complete line; a turn or limits record
+  not found in the new bytes keeps the previous value, so a multi-megabyte tool
+  output cannot hide a running turn. A file that shrank is read afresh.
 - Codex has no alert screen: permission prompts are out of scope.
 
 **Shared view.** `ClaudeView` becomes `LimitsView` and is used for both
@@ -169,7 +174,7 @@ label is shortened to "нд" in Russian. A column without data shows empty bars 
 is dropped in this layout; Claude's square takes its role.
 
 **Config.** `CODEX=off|on` in `~/.minitoo-dashboard/config`. `install.sh` asks
-when `~/.codex` exists. `status` reports when the Codex data was captured and
+when `~/.codex` exists and otherwise leaves the setting alone. `status` reports when the Codex data was captured and
 whether Codex is working.
 
 ## 3. Architecture

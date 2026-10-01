@@ -37,7 +37,7 @@ def paused_path() -> Path:
 
 
 def codex_sessions_dir() -> Path:
-    return Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "sessions"
+    return Path.home() / ".codex" / "sessions"  # CODEX_HOME is not seen by the launchd daemon
 
 
 def clauddy_config_path() -> Path:

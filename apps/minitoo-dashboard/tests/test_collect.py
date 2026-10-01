@@ -1,3 +1,5 @@
+import json
+import os
 import tempfile
 import unittest
 from pathlib import Path
@@ -64,6 +66,36 @@ class CollectTest(unittest.TestCase):
                "five_hour": {"used_percentage": 62.0, "resets_at": NOW + 600}}
         self.sources(fetch_claude=lambda now: rec).refresh_claude(NOW)
         self.assertEqual(store.read_json(self.cache / "claude.json"), rec)
+
+    def test_codex_off_by_default(self):
+        m = self.sources().model(CFG, "working", NOW)
+        self.assertIsNone(m.codex)
+        self.assertFalse(m.codex_working)
+
+    def test_refresh_codex_and_model(self):
+        root = Path(self.tmp.name) / "codex"
+        (root / "2026").mkdir(parents=True)
+        path = root / "2026" / "rollout-x.jsonl"
+        rows = [{"timestamp": "2026-09-28T12:53:20Z", "type": "event_msg", "payload": {"type": "task_started"}},
+                {"timestamp": "2026-09-28T12:53:20Z", "type": "event_msg", "payload": {"type": "token_count",
+                 "rate_limits": {"limit_id": "codex", "primary": {"used_percent": 58.0, "window_minutes": 300,
+                                                                  "resets_at": NOW + 600}, "secondary": None}}}]
+        path.write_text("".join(json.dumps(r) + "\n" for r in rows))
+        os.utime(path, (NOW - 5, NOW - 5))
+        src = self.sources(codex_root=root)
+        src.refresh_codex(NOW)
+        m = src.model(Config(codex="on"), "chilling", NOW)
+        self.assertEqual(m.codex.five.pct, 58.0)
+        self.assertTrue(m.codex_working)
+        self.assertTrue(m.codex.has_data)
+        self.assertIsNone(m.codex.as_of)
+
+    def test_refresh_codex_without_codex_installed(self):
+        src = self.sources(codex_root=Path(self.tmp.name) / "missing")
+        src.refresh_codex(NOW)
+        m = src.model(Config(codex="on"), "chilling", NOW)
+        self.assertFalse(m.codex.has_data)
+        self.assertFalse(m.codex_working)
 
     def test_status_reads_sessions(self):
         (self.sessions / "s1").write_text(f"alerting {NOW}\n")

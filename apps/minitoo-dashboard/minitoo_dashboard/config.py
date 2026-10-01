@@ -19,6 +19,7 @@ class Config:
     calendars: str = "all"
     send_delay_ms: int = 20
     claude_limits: str = "statusline"
+    codex: str = "off"
 
     @property
     def has_city(self) -> bool:
@@ -92,6 +93,8 @@ def parse_config(text: str) -> Config:
             cfg.calendars = value
         elif key == "CLAUDE_LIMITS" and value in ("statusline", "direct"):
             cfg.claude_limits = value
+        elif key == "CODEX" and value in ("on", "off"):
+            cfg.codex = value
         elif key == "SEND_DELAY_MS":
             cfg.send_delay_ms = _clamp_int(value, 20, 0, 200)
     return cfg
@@ -111,6 +114,7 @@ def format_config(cfg: Config) -> str:
         f"CALENDARS={cfg.calendars}",
         f"SEND_DELAY_MS={cfg.send_delay_ms}",
         f"CLAUDE_LIMITS={cfg.claude_limits}",
+        f"CODEX={cfg.codex}",
     ]
     return "\n".join(line.replace("\n", " ") for line in lines) + "\n"
 

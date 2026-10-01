@@ -17,6 +17,7 @@ WEATHER_EVERY = 900
 WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
+CODEX_EVERY = 5  # local log reads only
 WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
@@ -67,7 +68,7 @@ class Dashboard:
         self.paused = False
         self.status = "chilling"
         self.last_tick: Optional[float] = None
-        self.next_weather = self.next_calendar = self.next_claude = 0.0
+        self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
         self.limits_error: Optional[str] = None
         self.weather_key: Any = None
         self.last_sent_at: Optional[float] = None
@@ -85,7 +86,7 @@ class Dashboard:
         cfg = self.load_config()
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
-            self.next_weather = self.next_calendar = self.next_claude = 0.0
+            self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
             self.last_blob = None
             self.backoff.ok()
         self.last_tick = now
@@ -141,6 +142,12 @@ class Dashboard:
                 self.limits_error = str(exc)
                 log.warning("direct Claude limits failed: %s", exc)
             self.next_claude = now + CLAUDE_EVERY
+        if cfg.codex == "on" and now >= self.next_codex:
+            try:
+                self.sources.refresh_codex(now)
+            except Exception as exc:  # unreadable logs, format change: keep last data
+                log.warning("Codex refresh failed: %s", exc)
+            self.next_codex = now + CODEX_EVERY
 
     def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
         if self.alert_shown:

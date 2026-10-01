@@ -37,6 +37,11 @@ class FakeSources:
             from minitoo_dashboard.sources.claude import DirectError
             raise DirectError("expired")
 
+    codex_calls = 0
+
+    def refresh_codex(self, now):
+        self.codex_calls += 1
+
     def model(self, cfg, status, now):
         return (status, self.version)
 
@@ -178,6 +183,16 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T)
         self.assertIn("expired", store.read_json(self.home / "state.json")["limits_error"])
         self.assertEqual(len(self.sends()), 1)
+
+    def test_codex_polled_every_five_seconds_when_on(self):
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", codex="on"))
+        for t in range(0, 10):
+            dash.tick(T + t)
+        self.assertEqual(self.sources.codex_calls, 2)
+
+    def test_codex_off_never_polls(self):
+        self.make().tick(T)
+        self.assertEqual(self.sources.codex_calls, 0)
 
     def test_no_device_configured(self):
         dash = self.make(cfg=Config())

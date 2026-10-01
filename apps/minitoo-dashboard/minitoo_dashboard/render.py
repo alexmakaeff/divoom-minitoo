@@ -40,6 +40,8 @@ class DashboardModel:
     weather: Optional[WeatherView]
     event: Optional[Item]  # what the event row shows (event or reminder)
     claude: LimitsView
+    codex: Optional[LimitsView] = None  # None: CODEX=off, Claude-only layout
+    codex_working: bool = False
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:

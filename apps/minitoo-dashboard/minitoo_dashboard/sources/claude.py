@@ -19,7 +19,7 @@ class Window:
 
 
 @dataclass
-class ClaudeView:
+class LimitsView:
     five: Window
     week: Window
     as_of: Optional[float]
@@ -49,20 +49,20 @@ def _window(raw: Any, now: float) -> Window:
     return Window(raw["used_percentage"], raw["resets_at"] - now, False)
 
 
-def claude_view(cache: Any, now: float) -> ClaudeView:
+def limits_view(cache: Any, now: float) -> LimitsView:
     empty = Window(None, None, False)
     if not isinstance(cache, dict) or "captured_at" not in cache:
-        return ClaudeView(empty, empty, None, False)
+        return LimitsView(empty, empty, None, False)
     captured = float(cache["captured_at"])
     as_of = captured if now - captured > STALE_AFTER else None
-    return ClaudeView(_window(cache.get("five_hour"), now), _window(cache.get("seven_day"), now), as_of, True)
+    return LimitsView(_window(cache.get("five_hour"), now), _window(cache.get("seven_day"), now), as_of, True)
 
 
 class DirectError(Exception):
     pass
 
 
-def _epoch(value: Any) -> Optional[float]:
+def iso_epoch(value: Any) -> Optional[float]:
     if not isinstance(value, str):
         return None
     try:
@@ -82,7 +82,7 @@ def parse_direct(data: Any, now: float) -> dict:
         window = data.get(key)
         if not isinstance(window, dict):
             continue
-        pct, resets = window.get("utilization"), _epoch(window.get("resets_at"))
+        pct, resets = window.get("utilization"), iso_epoch(window.get("resets_at"))
         if isinstance(pct, (int, float)) and resets is not None:
             record[key] = {"used_percentage": float(pct), "resets_at": resets}
     if not any(key in record for key in WINDOWS) and not any(isinstance(data.get(k), dict) for k in WINDOWS):

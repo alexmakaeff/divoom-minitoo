@@ -33,29 +33,29 @@ class ExtractTest(unittest.TestCase):
 
 class ViewTest(unittest.TestCase):
     def test_no_cache(self):
-        view = claude.claude_view(None, NOW)
+        view = claude.limits_view(None, NOW)
         self.assertFalse(view.has_data)
 
     def test_fresh(self):
-        view = claude.claude_view(claude.extract(FULL, NOW - 60), NOW)
+        view = claude.limits_view(claude.extract(FULL, NOW - 60), NOW)
         self.assertTrue(view.has_data)
         self.assertEqual(view.five, claude.Window(23.5, 7800, False))
         self.assertIsNone(view.as_of)
 
     def test_stale_sets_as_of(self):
-        view = claude.claude_view(claude.extract(FULL, NOW - 1200), NOW)
+        view = claude.limits_view(claude.extract(FULL, NOW - 1200), NOW)
         self.assertEqual(view.as_of, NOW - 1200)
 
     def test_reset_passed(self):
         data = {"rate_limits": {"five_hour": {"used_percentage": 50, "resets_at": NOW - 10},
                                 "seven_day": FULL["rate_limits"]["seven_day"]}}
-        view = claude.claude_view(claude.extract(data, NOW - 9000), NOW)
+        view = claude.limits_view(claude.extract(data, NOW - 9000), NOW)
         self.assertEqual(view.five, claude.Window(None, None, True))
         self.assertFalse(view.week.is_reset)
 
     def test_missing_window(self):
         rec = claude.extract({"rate_limits": {"five_hour": FULL["rate_limits"]["five_hour"]}}, NOW)
-        self.assertEqual(claude.claude_view(rec, NOW).week, claude.Window(None, None, False))
+        self.assertEqual(claude.limits_view(rec, NOW).week, claude.Window(None, None, False))
 
 
 class DirectUsageTest(unittest.TestCase):

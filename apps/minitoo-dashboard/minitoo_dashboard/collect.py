@@ -52,5 +52,5 @@ class Sources:
             now=now, status=status, lang=cfg.lang, temp_unit=cfg.temp_unit, city_name=cfg.city_name,
             weather=weather.weather_view(wcache, now) if cfg.has_city else None,
             event=calendar.select_item(events, reminders, now, cfg.calendar_list()),
-            claude=claude.claude_view(store.read_json(self.cache_dir / "claude.json"), now),
+            claude=claude.limits_view(store.read_json(self.cache_dir / "claude.json"), now),
         )

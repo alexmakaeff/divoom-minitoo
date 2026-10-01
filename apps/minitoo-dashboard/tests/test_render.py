@@ -2,7 +2,7 @@ import unittest
 
 from minitoo_dashboard import i18n, render
 from minitoo_dashboard.sources.calendar import Item
-from minitoo_dashboard.sources.claude import ClaudeView, Window
+from minitoo_dashboard.sources.claude import LimitsView, Window
 
 NOW = 1_790_600_000.0
 
@@ -45,7 +45,7 @@ class ScreenTest(unittest.TestCase):
 
     def test_missing_data_still_renders_every_row(self):
         empty = Window(None, None, False)
-        img = render.render_screen(model(weather=None, event=None, claude=ClaudeView(empty, empty, None, False)))
+        img = render.render_screen(model(weather=None, event=None, claude=LimitsView(empty, empty, None, False)))
         self.assertTrue(lit(img, (0, 44, 160, 82)))     # "No events left"
         self.assertTrue(lit(img, (0, 86, 140, 128)))    # "no data yet"
 
@@ -90,12 +90,12 @@ class ScreenTest(unittest.TestCase):
         self.assertEqual(render.render_screen(m).size, (160, 128))
 
     def test_full_limit_stays_on_screen(self):
-        full = ClaudeView(Window(100.0, 600, False), Window(100.0, 3600, False), None, True)
+        full = LimitsView(Window(100.0, 600, False), Window(100.0, 3600, False), None, True)
         img = render.render_screen(model(claude=full))
         self.assertFalse(lit(img, (156, 86, 160, 112)))
 
     def test_stale_and_reset_states_render(self):
-        stale = ClaudeView(Window(None, None, True), Window(55.0, 3600, False), NOW - 3600, True)
+        stale = LimitsView(Window(None, None, True), Window(55.0, 3600, False), NOW - 3600, True)
         self.assertEqual(render.render_screen(model(claude=stale)).size, (160, 128))
 
     def test_wrap_limits_lines(self):

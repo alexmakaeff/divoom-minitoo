@@ -9,7 +9,7 @@ from PIL import Image, ImageDraw, ImageFont
 
 from . import i18n, paths
 from .sources.calendar import Item
-from .sources.claude import ClaudeView, Window
+from .sources.claude import LimitsView, Window
 from .sources.weather import WeatherView
 
 W, H = 160, 128
@@ -39,7 +39,7 @@ class DashboardModel:
     city_name: str
     weather: Optional[WeatherView]
     event: Optional[Item]  # what the event row shows (event or reminder)
-    claude: ClaudeView
+    claude: LimitsView
 
 
 def font(size: int) -> ImageFont.FreeTypeFont:
@@ -241,5 +241,5 @@ def demo_model(now: float, lang: str, status: str = "working") -> DashboardModel
         city_name="Москва" if lang == "ru" else "Moscow",
         weather=WeatherView(12, 15, 8, "cloudy", "18:00", "rain", None),
         event=Item("event", "Созвон с командой" if lang == "ru" else "Team sync", now + 25 * 60, now + 85 * 60),
-        claude=ClaudeView(Window(23.0, 7800, False), Window(41.0, 3 * 86400, False), None, True),
+        claude=LimitsView(Window(23.0, 7800, False), Window(41.0, 3 * 86400, False), None, True),
     )

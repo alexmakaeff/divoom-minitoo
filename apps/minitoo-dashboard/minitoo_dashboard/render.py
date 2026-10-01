@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 import math
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime
 from typing import Dict, List, Optional
 
@@ -238,7 +238,8 @@ def _limits_table(d, m: DashboardModel) -> None:
     d.text((4, 97), i18n.t(m.lang, "h5"), font=font(8), fill=DIM)
     d.text((4, 108), i18n.t(m.lang, "wk_short"), font=font(8), fill=DIM)
     _limits_column(d, 24, "Claude", m.claude, m.status == "working", ORANGE, m.lang)
-    _limits_column(d, 92, "Codex", m.codex, m.codex_working, TEAL, m.lang)
+    # Codex data go stale whenever Codex is idle, but resets_at stays exact: show the timer, not "as of"
+    _limits_column(d, 92, "Codex", replace(m.codex, as_of=None), m.codex_working, TEAL, m.lang)
 
 
 def render_screen(m: DashboardModel) -> Image.Image:

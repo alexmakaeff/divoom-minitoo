@@ -145,9 +145,11 @@ what was appended to the logs changed in the last 30 minutes, every 5 seconds.
 It needs no credentials and makes no network requests. A custom `CODEX_HOME`
 is not supported.
 
-- The numbers refresh only while you use Codex. Numbers older than 10 minutes
-  show their time under the column instead of the reset time ("@14:05", or
-  "на 14:05" in Russian).
+- The numbers refresh only while you use Codex. The time until the 5-hour reset
+  is always shown under the column, even when the numbers are old, because the
+  logs record the exact reset time ("reset" once it has passed). Usage from
+  another device or Codex cloud tasks is not in this Mac's logs, so the
+  percentages can lag behind until you use Codex here again.
 - **Both columns show how much is used**, from 0% (nothing used) to 100% (limit
   reached), the way Claude reports it. The ChatGPT/Codex apps show the opposite,
   how much is **left**: Codex "78% left" appears here as 22%. The dashboard

@@ -132,6 +132,19 @@ class ScreenTest(unittest.TestCase):
         self.assertFalse(self.has_color(img, (92, 97, 122, 115), render.TEAL))
         self.assertTrue(lit(img, (124, 97, 156, 104)))  # "--"
 
+    def test_codex_shows_reset_timer_even_when_stale(self):
+        fresh = LimitsView(Window(58.0, 480, False), Window(21.0, 86400, False), None, True)
+        stale = LimitsView(Window(58.0, 480, False), Window(21.0, 86400, False), NOW - 3600, True)
+        for lang in ("en", "ru"):
+            self.assertEqual(render.render_screen(model(lang, codex=stale)).tobytes(),
+                             render.render_screen(model(lang, codex=fresh)).tobytes())
+
+    def test_claude_column_still_shows_as_of(self):
+        fresh = LimitsView(Window(23.0, 480, False), Window(41.0, 86400, False), None, True)
+        stale = LimitsView(Window(23.0, 480, False), Window(41.0, 86400, False), NOW - 3600, True)
+        self.assertNotEqual(render.render_screen(self.table(claude=stale)).tobytes(),
+                            render.render_screen(self.table(claude=fresh)).tobytes())
+
     def test_table_stale_footer_fits(self):
         stale = LimitsView(Window(None, None, True), Window(55.0, 3600, False), NOW - 3600, True)
         for lang in ("en", "ru"):

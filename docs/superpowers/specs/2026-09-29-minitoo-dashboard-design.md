@@ -177,7 +177,11 @@ label is shortened to "нд" in Russian. Percentages are **used** for both servi
 (Codex logs `used_percent`), although the ChatGPT/Codex apps display the
 **remaining** share; owner decision 2026-10-01: keep one direction on one screen
 and explain it in the README. A column without data shows empty bars and "--". The bottom-right badge
-is dropped in this layout; Claude's square takes its role.
+is dropped in this layout; Claude's square takes its role. Amended 2026-10-01
+(owner): the Codex column never shows "as of" — its data go stale after every
+10 idle minutes, while `resets_at` stays exact — so it always shows the reset
+timer (or "reset"); the Claude column keeps "as of", which there means the
+source broke.
 
 **Config.** `CODEX=off|on` in `~/.minitoo-dashboard/config`. `install.sh` asks
 when `~/.codex` exists and otherwise leaves the setting alone. `status` reports when the Codex data was captured and

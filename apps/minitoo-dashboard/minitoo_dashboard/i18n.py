@@ -3,7 +3,7 @@ from __future__ import annotations
 STRINGS = {
     "en": {
         "now": "NOW", "until": "until {t}", "in_short": "{d}", "none_left": "No events left", "overdue": "OVERDUE", "today": "TODAY",
-        "h5": "5h", "wk": "wk", "reset": "reset", "reset_in": "reset {d}", "as_of": "as of {t}",
+        "h5": "5h", "wk": "wk", "wk_short": "wk", "as_of_short": "@{t}", "reset": "reset", "reset_in": "reset {d}", "as_of": "as of {t}",
         "no_data": "Claude: no data yet", "no_weather": "No weather data", "ago": "{d} ago",
         "rain_at": "Rain {t}", "snow_at": "Snow {t}", "rain_now": "Rain now", "snow_now": "Snow now",
         "alert": "Claude needs you",
@@ -12,7 +12,7 @@ STRINGS = {
     },
     "ru": {
         "now": "СЕЙЧАС", "until": "до {t}", "in_short": "{d}", "none_left": "Событий нет", "overdue": "ПРОСРОЧЕНО", "today": "СЕГОДНЯ",
-        "h5": "5ч", "wk": "нед", "reset": "сброшен", "reset_in": "сброс {d}", "as_of": "на {t}",
+        "h5": "5ч", "wk": "нед", "wk_short": "нд", "as_of_short": "на {t}", "reset": "сброшен", "reset_in": "сброс {d}", "as_of": "на {t}",
         "no_data": "Claude: нет данных", "no_weather": "Нет данных о погоде", "ago": "{d} назад",
         "rain_at": "Дождь {t}", "snow_at": "Снег {t}", "rain_now": "Идёт дождь", "snow_now": "Идёт снег",
         "alert": "Claude ждёт вас",

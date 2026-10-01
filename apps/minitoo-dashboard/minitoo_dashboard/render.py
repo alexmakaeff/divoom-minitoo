@@ -23,6 +23,7 @@ YELLOW = (255, 210, 74)
 RED = (230, 57, 70)
 TRACK = (51, 51, 51)
 CLOUD = (200, 210, 222)
+TEAL = (16, 163, 127)
 FONT_PATH = paths.APP_DIR / "fonts" / "PressStart2P-Regular.ttf"
 MISSING = "\U000F0000"  # private-use plane: renders as the font's .notdef glyph
 
@@ -205,15 +206,39 @@ def _claude_row(d, m: DashboardModel) -> None:
         if window.pct is not None:
             d.rectangle([30, y, 30 + round(84 * min(window.pct, 100) / 100), y + 6], fill=ORANGE)
         d.text((120, y), _pct(window), font=font(8), fill=WHITE)
-    if c.as_of is not None:
-        footer = i18n.t(lang, "as_of", t=_hhmm(c.as_of))
-    elif c.five.is_reset:
-        footer = i18n.t(lang, "reset")
-    elif c.five.reset_in is not None:
-        footer = i18n.t(lang, "reset_in", d=i18n.duration(c.five.reset_in, lang))
-    else:
-        footer = ""
-    d.text((4, 115), _fit(footer, font(8), 140), font=font(8), fill=DIM)
+    d.text((4, 115), _fit(_limits_footer(c, lang, False), font(8), 140), font=font(8), fill=DIM)
+
+
+def _limits_footer(v: LimitsView, lang: str, short: bool) -> str:
+    if v.as_of is not None:
+        return i18n.t(lang, "as_of_short" if short else "as_of", t=_hhmm(v.as_of))
+    if v.five.is_reset:
+        return i18n.t(lang, "reset")
+    if v.five.reset_in is not None:
+        left = i18n.duration(v.five.reset_in, lang)
+        return left if short else i18n.t(lang, "reset_in", d=left)
+    return ""
+
+
+def _limits_column(d, x: int, name: str, view: LimitsView, working: bool, color, lang: str) -> None:
+    d.text((x, 86), name, font=font(8), fill=color)
+    square = x + int(font(8).getlength(name)) + 4
+    d.rectangle([square, 86, square + 7, 93], fill=color if working else GREY)
+    for y, window in ((97, view.five), (108, view.week)):
+        d.rectangle([x, y, x + 29, y + 6], fill=TRACK)
+        if window.pct is not None:
+            d.rectangle([x, y, x + round(29 * min(window.pct, 100) / 100), y + 6], fill=color)
+        text = _pct(window)
+        d.text((x + 64 - int(font(8).getlength(text)), y), text, font=font(8), fill=WHITE)
+    footer = _limits_footer(view, lang, True) if view.has_data else ""
+    d.text((x, 119), _fit(footer, font(8), 64), font=font(8), fill=DIM)
+
+
+def _limits_table(d, m: DashboardModel) -> None:
+    d.text((4, 97), i18n.t(m.lang, "h5"), font=font(8), fill=DIM)
+    d.text((4, 108), i18n.t(m.lang, "wk_short"), font=font(8), fill=DIM)
+    _limits_column(d, 24, "Claude", m.claude, m.status == "working", ORANGE, m.lang)
+    _limits_column(d, 92, "Codex", m.codex, m.codex_working, TEAL, m.lang)
 
 
 def render_screen(m: DashboardModel) -> Image.Image:
@@ -222,8 +247,11 @@ def render_screen(m: DashboardModel) -> Image.Image:
     d.line([4, 41, 155, 41], fill=TRACK)
     _event_row(d, m)
     d.line([4, 83, 155, 83], fill=TRACK)
-    _claude_row(d, m)
-    d.rectangle([148, 116, 155, 123], fill=ORANGE if m.status == "working" else GREY)
+    if m.codex is None:
+        _claude_row(d, m)
+        d.rectangle([148, 116, 155, 123], fill=ORANGE if m.status == "working" else GREY)
+    else:
+        _limits_table(d, m)
     return img
 
 
@@ -237,11 +265,12 @@ def render_alert(lang: str) -> Image.Image:
     return img
 
 
-def demo_model(now: float, lang: str, status: str = "working") -> DashboardModel:
+def demo_model(now: float, lang: str, status: str = "working", codex: bool = False) -> DashboardModel:
     return DashboardModel(
         now=now, status=status, lang=lang, temp_unit="celsius",
         city_name="Москва" if lang == "ru" else "Moscow",
         weather=WeatherView(12, 15, 8, "cloudy", "18:00", "rain", None),
         event=Item("event", "Созвон с командой" if lang == "ru" else "Team sync", now + 25 * 60, now + 85 * 60),
         claude=LimitsView(Window(23.0, 7800, False), Window(41.0, 3 * 86400, False), None, True),
+        codex=LimitsView(Window(58.0, 480, False), Window(21.0, 3 * 86400, False), None, True) if codex else None,
     )

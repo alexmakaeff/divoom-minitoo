@@ -98,6 +98,47 @@ class ScreenTest(unittest.TestCase):
         stale = LimitsView(Window(None, None, True), Window(55.0, 3600, False), NOW - 3600, True)
         self.assertEqual(render.render_screen(model(claude=stale)).size, (160, 128))
 
+    def table(self, **kw):
+        view = LimitsView(Window(58.0, 480, False), Window(21.0, 86400, False), None, True)
+        return model(**dict({"codex": view, "codex_working": False}, **kw))
+
+    def test_codex_off_keeps_badge(self):
+        self.assertIsNone(model().codex)
+        self.assertEqual(render.render_screen(model()).getpixel((151, 119)), render.ORANGE)
+
+    def test_table_squares(self):
+        img = render.render_screen(self.table())
+        self.assertEqual(img.getpixel((79, 89)), render.ORANGE)   # Claude working
+        self.assertEqual(img.getpixel((139, 89)), render.GREY)    # Codex idle
+        img = render.render_screen(self.table(status="chilling", codex_working=True))
+        self.assertEqual(img.getpixel((79, 89)), render.GREY)
+        self.assertEqual(img.getpixel((139, 89)), render.TEAL)
+
+    def test_table_bars_in_service_colours(self):
+        img = render.render_screen(self.table())
+        self.assertTrue(self.has_color(img, (24, 97, 54, 104), render.ORANGE))
+        self.assertTrue(self.has_color(img, (92, 97, 122, 104), render.TEAL))
+        self.assertNotEqual(img.getpixel((151, 119)), render.ORANGE)  # no bottom-right badge
+
+    def test_table_full_limits_stay_on_screen(self):
+        full = LimitsView(Window(100.0, 600, False), Window(100.0, 3600, False), None, True)
+        img = render.render_screen(self.table(claude=full, codex=full))
+        self.assertFalse(lit(img, (156, 86, 160, 128)))
+        self.assertFalse(lit(img, (89, 97, 92, 115)))  # Claude "100%" stops before the Codex column
+
+    def test_table_without_codex_data(self):
+        empty = Window(None, None, False)
+        img = render.render_screen(self.table(codex=LimitsView(empty, empty, None, False)))
+        self.assertFalse(self.has_color(img, (92, 97, 122, 115), render.TEAL))
+        self.assertTrue(lit(img, (124, 97, 156, 104)))  # "--"
+
+    def test_table_stale_footer_fits(self):
+        stale = LimitsView(Window(None, None, True), Window(55.0, 3600, False), NOW - 3600, True)
+        for lang in ("en", "ru"):
+            img = render.render_screen(model(lang, codex=stale, claude=stale))
+            self.assertTrue(lit(img, (92, 119, 156, 127)))
+            self.assertFalse(lit(img, (156, 119, 160, 128)))
+
     def test_wrap_limits_lines(self):
         lines = render.wrap("one two three four five six seven eight nine ten eleven twelve", render.font(8), 148, 3)
         self.assertLessEqual(len(lines), 3)

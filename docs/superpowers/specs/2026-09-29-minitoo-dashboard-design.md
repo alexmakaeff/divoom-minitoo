@@ -147,7 +147,11 @@ from the end, in chunks, until it has found what it needs or read 4 MB.
   mtime window is the same safety net as for Claude sessions. `cache/codex.json`
   also holds `working` and `checked_at`; the flag is ignored when `checked_at` is
   more than 60 s old (daemon not running). Results are memoised per file by
-  (mtime, size), so unchanged files are not re-read.
+  (mtime, size), so unchanged files are not re-read. The whole history is
+  walked every 60 s; in between only the files that were recent at the last
+  check and today's/yesterday's date directories are stat-ed, so a resumed old
+  conversation is noticed within a minute. `cache/codex.json` is rewritten only
+  when something besides `checked_at` changed, or every 30 s.
 - A missing `~/.codex`, unreadable files, malformed lines or unknown formats
   keep the last data and are logged as a warning; they never break the screen.
 - Codex has no alert screen: permission prompts are out of scope.

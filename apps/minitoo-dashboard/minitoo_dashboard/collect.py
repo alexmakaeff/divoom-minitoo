@@ -24,7 +24,7 @@ class Sources:
         self.helper_app = helper_app or calendar.HELPER_APP
         self.fetch_claude = fetch_claude or (lambda now: claude.fetch_direct(USAGE_HELPER, now))
         self.codex_root = Path(codex_root or paths.codex_sessions_dir())
-        self.codex_memo: dict = {}
+        self.codex_scanner = codex.Scanner(self.codex_root)
 
     def status(self, now: float) -> str:
         return status_mod.aggregate(status_mod.read_sessions(self.sessions_dir), now)
@@ -44,9 +44,12 @@ class Sources:
         store.write_json_atomic(self.cache_dir / "claude.json", self.fetch_claude(now))
 
     def refresh_codex(self, now: float) -> None:
-        record, working = codex.scan(self.codex_root, now, self.codex_memo)
+        record, working = self.codex_scanner.scan(now)
         path = self.cache_dir / "codex.json"
-        store.write_json_atomic(path, codex.merge(store.read_json(path), record, working, now))
+        old = store.read_json(path)
+        new = codex.merge(old, record, working, now)
+        if codex.needs_write(old, new, now):
+            store.write_json_atomic(path, new)
 
     def model(self, cfg: Config, status: str, now: float) -> render.DashboardModel:
         wcache = store.read_json(self.cache_dir / "weather.json")

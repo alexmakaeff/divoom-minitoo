@@ -2,8 +2,9 @@ from __future__ import annotations
 
 import json
 import os
+import time
 from pathlib import Path
-from typing import Any, Dict, Iterator, List, Optional, Tuple
+from typing import Any, Dict, Iterable, Iterator, List, Optional, Set, Tuple
 
 from .claude import iso_epoch
 
@@ -14,23 +15,37 @@ WORKING_TTL = 60  # the daemon rewrites the flag every 5 s; older means nobody i
 WINDOWS = {300: "five_hour", 10080: "seven_day"}
 TURN_EVENTS = {"task_started": True, "task_complete": False, "turn_aborted": False}
 LIMIT_KEYS = ("captured_at", "five_hour", "seven_day")
+FULL_WALK_EVERY = 60  # a resumed old conversation is noticed within this; in between only hot files are checked
+REWRITE_EVERY = 30  # keep checked_at well inside WORKING_TTL without rewriting the cache every 5 s
 
 Result = Tuple[Optional[dict], Optional[bool]]
 
 
-def recent_files(root: Path, now: float, within: float = ACTIVE_WITHIN) -> List[Tuple[Path, os.stat_result]]:
-    found = []
+def all_files(root: Path) -> Iterator[Path]:
     for dirpath, _, names in os.walk(root):  # a missing root yields nothing
         for name in names:
-            if not name.endswith(".jsonl"):
-                continue
-            path = Path(dirpath) / name
-            try:
-                st = path.stat()
-            except OSError:
-                continue
-            if now - st.st_mtime <= within:
-                found.append((path, st))
+            if name.endswith(".jsonl"):
+                yield Path(dirpath) / name
+
+
+def day_files(root: Path, now: float) -> Iterator[Path]:
+    """New conversations land in the directory of the local date they start on."""
+    for ts in (now, now - 86400):
+        try:
+            yield from (root / time.strftime("%Y/%m/%d", time.localtime(ts))).glob("*.jsonl")
+        except OSError:
+            continue
+
+
+def recent(paths: Iterable[Path], now: float, within: float = ACTIVE_WITHIN) -> List[Tuple[Path, os.stat_result]]:
+    found = []
+    for path in paths:
+        try:
+            st = path.stat()
+        except OSError:
+            continue
+        if now - st.st_mtime <= within:
+            found.append((path, st))
     return found
 
 
@@ -94,22 +109,41 @@ def scan_file(path: Path) -> Result:
     return record, working
 
 
-def scan(root: Path, now: float, memo: Dict[str, Tuple[Tuple[float, int], Result]]) -> Tuple[Optional[dict], bool]:
-    best: Optional[dict] = None
-    working = False
-    seen = set()
-    for path, st in recent_files(root, now):
-        key, stamp = str(path), (st.st_mtime, st.st_size)
-        seen.add(key)
-        if key not in memo or memo[key][0] != stamp:
-            memo[key] = (stamp, scan_file(path))
-        record, busy = memo[key][1]
-        working = working or bool(busy)
-        if record is not None and (best is None or record["captured_at"] > best["captured_at"]):
-            best = record
-    for key in set(memo) - seen:
-        del memo[key]
-    return best, working
+class Scanner:
+    """Finds recent session files without stat-ing the whole history every time."""
+
+    def __init__(self, root: Path):
+        self.root = Path(root)
+        self.walked_at: Optional[float] = None
+        self.hot: Set[Path] = set()
+        self.memo: Dict[str, Tuple[Tuple[float, int], Result]] = {}
+
+    def _files(self, now: float) -> List[Tuple[Path, os.stat_result]]:
+        if self.walked_at is None or not 0 <= now - self.walked_at < FULL_WALK_EVERY:
+            self.walked_at = now
+            candidates: Set[Path] = set(all_files(self.root))
+        else:
+            candidates = self.hot | set(day_files(self.root, now))
+        found = recent(candidates, now)
+        self.hot = {path for path, _ in found}
+        return found
+
+    def scan(self, now: float) -> Tuple[Optional[dict], bool]:
+        best: Optional[dict] = None
+        working = False
+        seen = set()
+        for path, st in self._files(now):
+            key, stamp = str(path), (st.st_mtime, st.st_size)
+            seen.add(key)
+            if key not in self.memo or self.memo[key][0] != stamp:
+                self.memo[key] = (stamp, scan_file(path))
+            record, busy = self.memo[key][1]
+            working = working or bool(busy)
+            if record is not None and (best is None or record["captured_at"] > best["captured_at"]):
+                best = record
+        for key in set(self.memo) - seen:
+            del self.memo[key]
+        return best, working
 
 
 def merge(old: Any, record: Optional[dict], working: bool, now: float) -> dict:
@@ -118,6 +152,13 @@ def merge(old: Any, record: Optional[dict], working: bool, now: float) -> dict:
     if record is not None and record["captured_at"] > float(limits.get("captured_at", 0)):
         limits = record
     return dict(limits, working=working, checked_at=now)
+
+
+def needs_write(old: Any, new: dict, now: float) -> bool:
+    if not isinstance(old, dict):
+        return True
+    same = {k: v for k, v in old.items() if k != "checked_at"} == {k: v for k, v in new.items() if k != "checked_at"}
+    return not same or now - float(old.get("checked_at", 0)) >= REWRITE_EVERY
 
 
 def is_working(cache: Any, now: float) -> bool:

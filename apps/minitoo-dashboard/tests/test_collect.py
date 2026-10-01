@@ -90,6 +90,14 @@ class CollectTest(unittest.TestCase):
         self.assertTrue(m.codex.has_data)
         self.assertIsNone(m.codex.as_of)
 
+    def test_refresh_codex_skips_unchanged_writes(self):
+        src = self.sources(codex_root=Path(self.tmp.name) / "missing")
+        src.refresh_codex(NOW)
+        src.refresh_codex(NOW + 5)
+        self.assertEqual(store.read_json(self.cache / "codex.json")["checked_at"], NOW)
+        src.refresh_codex(NOW + 30)
+        self.assertEqual(store.read_json(self.cache / "codex.json")["checked_at"], NOW + 30)
+
     def test_refresh_codex_without_codex_installed(self):
         src = self.sources(codex_root=Path(self.tmp.name) / "missing")
         src.refresh_codex(NOW)

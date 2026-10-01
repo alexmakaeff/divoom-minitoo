@@ -107,6 +107,61 @@ reminder due today. "+N" counts the other open reminders of all three kinds and
 is shown with events too. Reminders get a checkbox; "OVERDUE" is yellow, because
 red belongs to the Claude alert. `CALENDARS` also filters Reminders lists.
 
+### Amendment (2026-10-01): Codex limits and status
+
+The owner uses a ChatGPT subscription through Codex (the ChatGPT desktop app and
+the VS Code extension, never the CLI) as much as Claude and wants to see at a
+glance where quota is left. With `CODEX=on` the limits zone becomes a table
+(brainstorming layout "A"); with `CODEX=off` (the default) the screen is
+unchanged.
+
+**Data.** Every Codex client writes session logs to
+`~/.codex/sessions/YYYY/MM/DD/rollout-*.jsonl`; the date in the path is when the
+conversation *started*, and one file keeps growing for as long as the
+conversation does, so files are chosen by mtime, never by name. Lines are JSON
+objects `{"timestamp", "type", "payload"}`. Verified on the owner's Mac
+(originators `Codex Desktop`, `codex_work_desktop`, `codex_vscode`):
+
+- `event_msg` / `token_count` carries `rate_limits` with `primary` and
+  `secondary`, each `{used_percent, window_minutes, resets_at (epoch s)}`.
+  Windows are identified by `window_minutes` (300 → 5-hour, 10080 → week), not
+  by position.
+- `event_msg` / `task_started`, `task_complete`, `turn_aborted` mark the start
+  and end of every turn.
+
+**`sources/codex.py`.** Every 5 s the daemon lists session files modified in the
+last 30 minutes (`archived_sessions/` is ignored) and reads each one backwards
+from the end, in chunks, until it has found what it needs or read 4 MB.
+
+- Limits: the newest `token_count` with `rate_limits` across those files,
+  written to `cache/codex.json` in the Claude cache-record format
+  (`captured_at` = that event's `timestamp`, `five_hour`, `seven_day` with
+  `used_percentage` and `resets_at`). The cache is only replaced by a reading
+  with a newer `captured_at`; with no recent files, or none with `rate_limits`
+  within the 4 MB read limit, it keeps the last record, so an old reading is
+  still shown as "as of".
+- Working: true when, in any of those files, the latest of
+  `task_started` / `task_complete` / `turn_aborted` is `task_started`. The 30-minute
+  mtime window is the same safety net as for Claude sessions.
+- A missing `~/.codex`, unreadable files, malformed lines or unknown formats
+  keep the last data and are logged as a warning; they never break the screen.
+- Codex has no alert screen: permission prompts are out of scope.
+
+**Shared view.** `ClaudeView` becomes `LimitsView` and is used for both
+services, with the same staleness (10 min → "as of HH:MM") and reset rules.
+
+**Screen** (limits zone, y 84–127). A label column ("5ч"/"нд", "5h"/"wk") and
+two columns, Claude (orange) and Codex (teal `#10A37F`). Each column: the name
+with a status square after it (service colour when working, grey otherwise),
+a 5-hour bar and a week bar with percentages, and a footer with the 5-hour reset
+time, "as of HH:MM" when the data is stale, or "reset" when the window has
+reset. A column without data shows empty bars and "--". The bottom-right badge
+is dropped in this layout; Claude's square takes its role.
+
+**Config.** `CODEX=off|on` in `~/.minitoo-dashboard/config`. `install.sh` asks
+when `~/.codex` exists. `status` reports when the Codex data was captured and
+whether Codex is working.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.
@@ -132,6 +187,7 @@ All state lives in `~/.minitoo-dashboard/`.
 | `sources/weather.py` | Python | Open-Meteo forecast fetch + normalisation. Geocoding for the `city` command. |
 | `sources/calendar.py` | Python | Runs the helper, applies the calendar rules above. |
 | `sources/claude.py` | Python | Reads `cache/claude.json`, applies staleness/reset rules. |
+| `sources/codex.py` | Python | Reads recent Codex session logs → `cache/codex.json` and the Codex working flag. |
 | `render.py` | Python | Pillow: model → list of 160×128 page images. Also used by `preview`. |
 | `encode.py` | Python | Pages → `W2.c.r` blob (header `23 <n> <speed_be16> 08 0a`, JPEG frames) → `0x8B` chunk file. |
 | `device.py` | Python | Talks to the `dv` daemon: ensure running, send rawfile, switch ClockId. Owns retry/backoff. |
@@ -161,6 +217,7 @@ staleness and `render` are pure functions with no I/O.
 | Weather | every 15 min |
 | Calendar | every 60 s |
 | Claude limits | read on every render (written by the status line) |
+| Codex limits + working | every 5 s when `CODEX=on` |
 | Render + send | every 60 s (keeps "in N min" accurate), on status change, on data change |
 
 Before sending, the daemon compares the new blob with the last one sent and

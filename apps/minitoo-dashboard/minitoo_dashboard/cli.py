@@ -108,6 +108,8 @@ def cmd_status(args) -> int:
         captured = f"captured {_ago(x.get('captured_at'), now)}" \
             if isinstance(x, dict) and x.get("captured_at") else "no data yet"
         print(f"Codex limits:  {captured}   status: {'working' if codex.is_working(x, now) else 'idle'}")
+        if state.get("codex_error"):
+            print(f"Codex error:   {state['codex_error']}")
     else:
         print("Codex limits:  off (set CODEX=on in the config to show them)")
     return 0

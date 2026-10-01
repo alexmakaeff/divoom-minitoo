@@ -38,9 +38,12 @@ class FakeSources:
             raise DirectError("expired")
 
     codex_calls = 0
+    codex_fails = None
 
     def refresh_codex(self, now):
         self.codex_calls += 1
+        if self.codex_fails:
+            raise OSError(self.codex_fails)
 
     def model(self, cfg, status, now):
         return (status, self.version)
@@ -189,6 +192,24 @@ class DashboardTest(unittest.TestCase):
         for t in range(0, 10):
             dash.tick(T + t)
         self.assertEqual(self.sources.codex_calls, 2)
+
+    def test_codex_failure_logged_rarely_and_reported(self):
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", codex="on"))
+        self.sources.codex_fails = "disk full"
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            for t in range(0, 600, 5):
+                dash.tick(T + t)
+            self.assertEqual(sum("Codex" in line for line in logs.output), 1)
+            self.assertIn("disk full", store.read_json(self.home / "state.json")["codex_error"])
+            dash.tick(T + 600)                       # still failing: one reminder per 10 min
+            self.sources.codex_fails = "other"       # a different error is logged at once
+            dash.tick(T + 605)
+            self.sources.codex_fails = None
+            dash.tick(T + 610)
+        codex_lines = [line for line in logs.output if "Codex" in line]
+        self.assertEqual(len(codex_lines), 4)
+        self.assertIn("recovered", codex_lines[-1])
+        self.assertIsNone(store.read_json(self.home / "state.json")["codex_error"])
 
     def test_codex_off_never_polls(self):
         self.make().tick(T)

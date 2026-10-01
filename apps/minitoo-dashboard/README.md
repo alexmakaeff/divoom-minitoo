@@ -148,8 +148,15 @@ is not supported.
 - The numbers refresh only while you use Codex. Numbers older than 10 minutes
   show their time under the column instead of the reset time ("@14:05", or
   "на 14:05" in Russian).
+- **Both columns show how much is used**, from 0% (nothing used) to 100% (limit
+  reached), the way Claude reports it. The ChatGPT/Codex apps show the opposite,
+  how much is **left**: Codex "78% left" appears here as 22%. The dashboard
+  keeps one direction so the two columns can be compared at a glance.
 - The square after "Codex" is teal while a Codex turn is running and grey
   otherwise.
+- If reading the logs keeps failing (for example the cache folder is not
+  writable), the error is logged once and then at most every 10 minutes, and
+  `minitoo-dashboard status` shows it as "Codex error".
 - Codex has no alert screen; only Claude's questions switch the screen.
 
 Turn it on with `minitoo-dashboard init --codex on` (or `off`); the installer

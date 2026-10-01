@@ -153,7 +153,10 @@ from the end, in chunks, until it has found what it needs or read 4 MB.
   conversation is noticed within a minute. `cache/codex.json` is rewritten only
   when something besides `checked_at` changed, or every 30 s.
 - A missing `~/.codex`, unreadable files, malformed lines or unknown formats
-  keep the last data silently; they never break the screen. Only `~/.codex` is
+  keep the last data silently; they never break the screen. A refresh that
+  raises (e.g. unwritable cache) keeps the last data, is logged when the error
+  first appears or changes and then at most every 10 min, logs "recovered" once,
+  and is shown by `status` as "Codex error". Only `~/.codex` is
   read: `CODEX_HOME` from the user's shell does not reach the launchd daemon.
 - After the first look at a file (last 4 MB), only bytes appended since then are
   read, starting at the end of the last complete line; a turn or limits record
@@ -170,7 +173,10 @@ with a status square after it (service colour when working, grey otherwise),
 a 5-hour bar and a week bar with percentages right-aligned to the column edge
 (so "100%" fits), and a footer with the 5-hour reset time ("2ч10м"), "на HH:MM" /
 "@HH:MM" when the data is stale, or "reset" when the window has reset. The week
-label is shortened to "нд" in Russian. A column without data shows empty bars and "--". The bottom-right badge
+label is shortened to "нд" in Russian. Percentages are **used** for both services
+(Codex logs `used_percent`), although the ChatGPT/Codex apps display the
+**remaining** share; owner decision 2026-10-01: keep one direction on one screen
+and explain it in the README. A column without data shows empty bars and "--". The bottom-right badge
 is dropped in this layout; Claude's square takes its role.
 
 **Config.** `CODEX=off|on` in `~/.minitoo-dashboard/config`. `install.sh` asks

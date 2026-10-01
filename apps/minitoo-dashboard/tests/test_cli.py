@@ -75,6 +75,9 @@ class CliTest(unittest.TestCase):
         _, out = self.run_cli(["status"])
         self.assertIn("Codex limits:  captured", out)
         self.assertIn("idle", out)
+        store.write_json_atomic(self.home / "state.json", {"updated_at": 1.0, "codex_error": "disk full"})
+        _, out = self.run_cli(["status"])
+        self.assertIn("Codex error:   disk full", out)
 
     def test_pause_resume(self):
         self.run_cli(["pause"])

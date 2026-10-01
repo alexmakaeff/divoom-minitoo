@@ -18,6 +18,7 @@ WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
 CODEX_EVERY = 5  # local log reads only
+CODEX_LOG_EVERY = 600  # repeat an unchanged Codex error in the log at most this often
 WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
@@ -70,6 +71,8 @@ class Dashboard:
         self.last_tick: Optional[float] = None
         self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
         self.limits_error: Optional[str] = None
+        self.codex_error: Optional[str] = None
+        self.codex_error_logged = 0.0
         self.weather_key: Any = None
         self.last_sent_at: Optional[float] = None
         self.last_error: Optional[str] = None
@@ -145,8 +148,16 @@ class Dashboard:
         if cfg.codex == "on" and now >= self.next_codex:
             try:
                 self.sources.refresh_codex(now)
-            except Exception as exc:  # unreadable logs, format change: keep last data
-                log.warning("Codex refresh failed: %s", exc)
+            except Exception as exc:  # unwritable cache and the like: keep last data, don't flood the log
+                error = str(exc)
+                if error != self.codex_error or now - self.codex_error_logged >= CODEX_LOG_EVERY:
+                    log.warning("Codex refresh failed: %s", error)
+                    self.codex_error_logged = now
+                self.codex_error = error
+            else:
+                if self.codex_error is not None:
+                    log.info("Codex refresh recovered")
+                    self.codex_error = None
             self.next_codex = now + CODEX_EVERY
 
     def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
@@ -178,7 +189,8 @@ class Dashboard:
                                               ("dashboard" if self.last_blob else "none"))
         state = {"status": self.status, "shown": shown, "paused": self.paused,
                  "last_sent_at": self.last_sent_at, "last_error": self.last_error,
-                 "retry_at": self.backoff.until or None, "limits_error": self.limits_error}
+                 "retry_at": self.backoff.until or None, "limits_error": self.limits_error,
+                 "codex_error": self.codex_error}
         if state == self._last_state and now - self._last_state_write < HEARTBEAT:
             return
         self._last_state, self._last_state_write = state, now

@@ -125,7 +125,9 @@ objects `{"timestamp", "type", "payload"}`. Verified on the owner's Mac
 - `event_msg` / `token_count` carries `rate_limits` with `primary` and
   `secondary`, each `{used_percent, window_minutes, resets_at (epoch s)}`.
   Windows are identified by `window_minutes` (300 → 5-hour, 10080 → week), not
-  by position.
+  by position: some records carry only the week window, as `primary`. Only
+  `limit_id` `"codex"` counts; others (seen: `"premium"` with null windows) are
+  skipped and the search goes on to older lines.
 - `event_msg` / `task_started`, `task_complete`, `turn_aborted` mark the start
   and end of every turn.
 
@@ -142,7 +144,10 @@ from the end, in chunks, until it has found what it needs or read 4 MB.
   still shown as "as of".
 - Working: true when, in any of those files, the latest of
   `task_started` / `task_complete` / `turn_aborted` is `task_started`. The 30-minute
-  mtime window is the same safety net as for Claude sessions.
+  mtime window is the same safety net as for Claude sessions. `cache/codex.json`
+  also holds `working` and `checked_at`; the flag is ignored when `checked_at` is
+  more than 60 s old (daemon not running). Results are memoised per file by
+  (mtime, size), so unchanged files are not re-read.
 - A missing `~/.codex`, unreadable files, malformed lines or unknown formats
   keep the last data and are logged as a warning; they never break the screen.
 - Codex has no alert screen: permission prompts are out of scope.
@@ -153,9 +158,10 @@ services, with the same staleness (10 min → "as of HH:MM") and reset rules.
 **Screen** (limits zone, y 84–127). A label column ("5ч"/"нд", "5h"/"wk") and
 two columns, Claude (orange) and Codex (teal `#10A37F`). Each column: the name
 with a status square after it (service colour when working, grey otherwise),
-a 5-hour bar and a week bar with percentages, and a footer with the 5-hour reset
-time, "as of HH:MM" when the data is stale, or "reset" when the window has
-reset. A column without data shows empty bars and "--". The bottom-right badge
+a 5-hour bar and a week bar with percentages right-aligned to the column edge
+(so "100%" fits), and a footer with the 5-hour reset time ("2ч10м"), "на HH:MM" /
+"@HH:MM" when the data is stale, or "reset" when the window has reset. The week
+label is shortened to "нд" in Russian. A column without data shows empty bars and "--". The bottom-right badge
 is dropped in this layout; Claude's square takes its role.
 
 **Config.** `CODEX=off|on` in `~/.minitoo-dashboard/config`. `install.sh` asks

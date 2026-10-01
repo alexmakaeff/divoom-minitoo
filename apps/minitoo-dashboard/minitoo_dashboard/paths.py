@@ -36,5 +36,9 @@ def paused_path() -> Path:
     return home() / "paused"
 
 
+def codex_sessions_dir() -> Path:
+    return Path(os.environ.get("CODEX_HOME", str(Path.home() / ".codex"))) / "sessions"
+
+
 def clauddy_config_path() -> Path:
     return Path(os.environ.get("CLAUDDY_CONFIG", str(Path.home() / ".clauddy" / "config")))

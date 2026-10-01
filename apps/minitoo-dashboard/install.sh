@@ -90,7 +90,14 @@ if [ "$(ask 'Choose 1 or 2 [1]: ' 1)" = 2 ]; then
     note "Switch later by setting CLAUDE_LIMITS=direct in $HOME_DIR/config."
   fi
 fi
-"$BIN" init --mac "$mac" --lang "$lang" --temp-unit "$unit" --claude-limits "$limits"
+codex=off
+if [ -d "${CODEX_HOME:-$HOME/.codex}/sessions" ]; then
+  case "$(ask 'Codex (ChatGPT) found. Show its limits next to Claude? [Y/n] ' y)" in
+    n|N|no|No) ;;
+    *) codex=on ;;
+  esac
+fi
+"$BIN" init --mac "$mac" --lang "$lang" --temp-unit "$unit" --claude-limits "$limits" --codex "$codex"
 while true; do
   city="$(ask 'City for weather (empty to skip): ' '')"
   if [ -z "$city" ]; then

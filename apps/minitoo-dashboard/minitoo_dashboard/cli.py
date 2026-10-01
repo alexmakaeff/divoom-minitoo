@@ -10,7 +10,7 @@ from PIL import Image
 
 from . import config, paths, render, store
 from .collect import Sources
-from .sources import weather
+from .sources import codex, weather
 
 
 def _ago(ts: Optional[float], now: float) -> str:
@@ -30,6 +30,8 @@ def cmd_init(args) -> int:
         cfg.temp_unit = args.temp_unit
     if args.claude_limits:
         cfg.claude_limits = args.claude_limits
+    if args.codex:
+        cfg.codex = args.codex
     config.save_config(cfg)
     print(f"Config written: {paths.config_path()}")
     return 0
@@ -101,6 +103,13 @@ def cmd_status(args) -> int:
     print(f"Claude limits: {captured}   (source setting: {cfg.claude_limits})")
     if state.get("limits_error"):
         print(f"Limits error:  {state['limits_error']}")
+    if cfg.codex == "on":
+        x = store.read_json(cache / "codex.json")
+        captured = f"captured {_ago(x.get('captured_at'), now)}" \
+            if isinstance(x, dict) and x.get("captured_at") else "no data yet"
+        print(f"Codex limits:  {captured}   status: {'working' if codex.is_working(x, now) else 'idle'}")
+    else:
+        print("Codex limits:  off (set CODEX=on in the config to show them)")
     return 0
 
 
@@ -108,7 +117,7 @@ def cmd_preview(args) -> int:
     now = time.time()
     cfg = config.load_config()
     if args.demo:
-        model = render.demo_model(now, cfg.lang)
+        model = render.demo_model(now, cfg.lang, codex=cfg.codex == "on")
     else:
         sources = Sources(paths.cache_dir(), paths.sessions_dir())
         model = sources.model(cfg, sources.status(now), now)
@@ -163,6 +172,7 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("--lang", choices=("en", "ru"))
     p.add_argument("--temp-unit", choices=("celsius", "fahrenheit"))
     p.add_argument("--claude-limits", choices=("statusline", "direct"))
+    p.add_argument("--codex", choices=("on", "off"))
     p = sub.add_parser("city", help="set the weather city")
     p.add_argument("name", nargs="+")
     p.add_argument("--pick", type=int)

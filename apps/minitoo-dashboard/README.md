@@ -35,6 +35,11 @@ thing that grabs your attention is the alert.
   until the 5-hour window resets.
 - **Status badge** (bottom right): orange while Claude is working, grey when it
   is idle. It changes within a second or two.
+- **Codex limits** (optional, `CODEX=on`): the bottom row becomes a small table,
+  Claude (orange) and Codex (teal) side by side, each with its 5-hour and weekly
+  bars, the 5-hour reset time and a status square after the name (coloured while
+  that agent is working, grey when idle). See
+  [Where Codex limits come from](#where-codex-limits-come-from).
 - **Alert**: when Claude asks you something (a permission prompt or a
   question), the screen switches to Clauddy's `alerting` face instantly.
   Without Clauddy, a red alert frame is shown instead.
@@ -105,6 +110,7 @@ every second.
 | `CALENDARS` | `all` | comma-separated calendar and Reminders list names to include |
 | `SEND_DELAY_MS` | `20` | pause between Bluetooth chunks (0–200) |
 | `CLAUDE_LIMITS` | `statusline` | `statusline`, or `direct` to also ask Anthropic every 5 min (see below) |
+| `CODEX` | `off` | `on` shows Codex (ChatGPT) limits and working status next to Claude's |
 
 ## Where Claude limits come from
 
@@ -129,6 +135,23 @@ every second.
   line still updates them, and `minitoo-dashboard status` shows the error. To
   switch, run `minitoo-dashboard init --claude-limits direct` (or `statusline`).
   After rebuilding `usage-helper`, macOS asks for Keychain access again.
+
+## Where Codex limits come from
+
+Every Codex client (the ChatGPT desktop app, the VS Code extension, the CLI)
+writes session logs to `~/.codex/sessions` (or `$CODEX_HOME/sessions`), and
+those logs include the subscription's 5-hour and weekly usage. With `CODEX=on`
+the dashboard reads the end of the logs changed in the last 30 minutes every
+5 seconds. It needs no credentials and makes no network requests.
+
+- The numbers refresh only while you use Codex. Older numbers show "as of
+  HH:MM" under the Codex column.
+- The square after "Codex" is teal while a Codex turn is running and grey
+  otherwise.
+- Codex has no alert screen; only Claude's questions switch the screen.
+
+Turn it on with `minitoo-dashboard init --codex on` (or `off`); the installer
+asks when it finds `~/.codex`.
 
 ## How it works
 

@@ -62,6 +62,20 @@ class CliTest(unittest.TestCase):
         self.run_cli(["init", "--claude-limits", "direct"])
         self.assertEqual(config.load_config().claude_limits, "direct")
 
+    def test_init_sets_codex(self):
+        self.run_cli(["init", "--codex", "on"])
+        self.assertEqual(config.load_config().codex, "on")
+
+    def test_status_shows_codex(self):
+        from minitoo_dashboard import store
+        _, out = self.run_cli(["status"])
+        self.assertIn("Codex limits:  off", out)
+        config.save_config(config.Config(codex="on"))
+        store.write_json_atomic(self.home / "cache" / "codex.json", {"captured_at": 1.0, "working": False, "checked_at": 1.0})
+        _, out = self.run_cli(["status"])
+        self.assertIn("Codex limits:  captured", out)
+        self.assertIn("idle", out)
+
     def test_pause_resume(self):
         self.run_cli(["pause"])
         self.assertTrue((self.home / "paused").exists())

@@ -112,6 +112,25 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("not allowed", out)
 
+    def test_refresh_limits_asks_daemon_and_reports(self):
+        from minitoo_dashboard import store
+        store.write_json_atomic(self.home / "state.json", {"updated_at": 9e9, "limits_checked_at": 0})
+
+        def daemon_answers(seconds):
+            self.assertTrue((self.home / "refresh-limits").exists())
+            store.write_json_atomic(self.home / "state.json", {"updated_at": 9e9, "limits_checked_at": 9e9,
+                                                               "limits_error": "usage-helper: http_429 slow down"})
+        with mock.patch("minitoo_dashboard.cli.time.sleep", daemon_answers):
+            code, out = self.run_cli(["refresh-limits"])
+        self.assertEqual(code, 1)
+        self.assertIn("http_429 slow down", out)
+
+    def test_refresh_limits_without_daemon(self):
+        code, out = self.run_cli(["refresh-limits"])
+        self.assertEqual(code, 1)
+        self.assertIn("not running", out)
+        self.assertFalse((self.home / "refresh-limits").exists())
+
     def test_pause_resume(self):
         self.run_cli(["pause"])
         self.assertTrue((self.home / "paused").exists())

@@ -13,6 +13,7 @@
 | Следить за логом в реальном времени (выход: Ctrl+C) | `tail -f ~/.minitoo-dashboard/dashboard.log` |
 | Отпустить MiniToo, например для приложения Divoom на телефоне | `minitoo-dashboard pause` |
 | Снова показывать дашборд | `minitoo-dashboard resume` |
+| Проверить лимиты Claude прямо сейчас | `minitoo-dashboard refresh-limits` |
 | Посмотреть экран без устройства (PNG в `~/.minitoo-dashboard/preview`) | `minitoo-dashboard preview` |
 | То же на примерных данных | `minitoo-dashboard preview --demo` |
 
@@ -25,6 +26,17 @@ minitoo-dashboard grant-keychain
 Появится одно окно macOS: введите пароль и нажмите «Разрешать всегда». Фоновый
 дашборд сам такое окно никогда не открывает. Пока доступа нет, лимиты Claude
 обновляются только из status line (во время работы в терминальном `claude`).
+
+## Если лимиты Claude не обновляются (`http_403` / `http_429` в статусе)
+
+Сервер отказывает: обычно закончилась подписка (403), а частые отказы приводят к 429.
+Дашборд сам делает паузы между попытками (10, 20, 40, потом 60 минут). После оплаты:
+
+```bash
+minitoo-dashboard refresh-limits
+```
+
+Если не помогло, запустите `claude` в Терминале (Claude Code обновит вход) и повторите команду.
 
 ## Настройки
 

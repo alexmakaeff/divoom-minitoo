@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Tuple
 from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
-from .sources.claude import KeychainAccessError
+from .sources.claude import KeychainAccessError, RefusedError
 
 log = logging.getLogger("minitoo_dashboard")
 log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches the file handler
@@ -20,6 +20,7 @@ WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
 CLAUDE_ACCESS_RETRY = 1800  # no Keychain access: only the owner can fix it (grant-keychain)
+CLAUDE_REFUSED_BACKOFF = (600, 1200, 2400, 3600)  # 403/429: polling harder only prolongs a 429
 CODEX_EVERY = 5  # local log reads only
 CODEX_LOG_EVERY = 600  # repeat an unchanged Codex error in the log at most this often
 WAKE_JUMP = 30
@@ -86,6 +87,9 @@ class Dashboard:
         self.limits_error: Optional[str] = None
         self.limits_error_at: Optional[float] = None
         self.keychain_lost = False  # notified about this loss of access already
+        self.limits_checked_at: Optional[float] = None
+        self.claude_hold = 0.0  # refused by the endpoint: no request before this, even after wake
+        self.claude_refusals = 0
         self.codex_error: Optional[str] = None
         self.codex_error_logged = 0.0
         self.weather_key: Any = None
@@ -113,7 +117,8 @@ class Dashboard:
         cfg = self.load_config()
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
-            self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
+            self.next_weather = self.next_calendar = self.next_codex = 0.0
+            self.next_claude = self.claude_hold
             self.last_blob = None
             self.backoff.ok()
         device = self._device(cfg)
@@ -160,15 +165,26 @@ class Dashboard:
             except Exception as exc:
                 log.warning("calendar refresh failed: %s", exc)
             self.next_calendar = now + CALENDAR_EVERY
+        request = self.home / "refresh-limits"
+        if request.exists():  # `minitoo-dashboard refresh-limits`: check now, whatever the backoff
+            request.unlink(missing_ok=True)
+            self.next_claude = self.claude_hold = 0.0
         if cfg.claude_limits == "direct" and now >= self.next_claude:
             self.next_claude = now + CLAUDE_EVERY
             try:
                 self.sources.refresh_claude(now)
                 self.limits_error = self.limits_error_at = None
                 self.keychain_lost = False
+                self.claude_hold, self.claude_refusals = 0.0, 0
             except Exception as exc:  # expired token, endpoint change, no network: keep last data
                 error = str(exc)
-                if isinstance(exc, KeychainAccessError):
+                if isinstance(exc, RefusedError):
+                    step = CLAUDE_REFUSED_BACKOFF[min(self.claude_refusals, len(CLAUDE_REFUSED_BACKOFF) - 1)]
+                    delay = max(step, exc.retry_after or 0)
+                    self.claude_refusals += 1
+                    self.next_claude = self.claude_hold = now + delay
+                    log.warning("direct Claude limits refused: %s (retry in %.0f min)", error, delay / 60)
+                elif isinstance(exc, KeychainAccessError):
                     self.next_claude = now + CLAUDE_ACCESS_RETRY
                     if error != self.limits_error:
                         log.warning("direct Claude limits need Keychain access: %s", error)
@@ -178,6 +194,7 @@ class Dashboard:
                 else:
                     log.warning("direct Claude limits failed: %s", error)
                 self.limits_error, self.limits_error_at = error, now
+            self.limits_checked_at = now
         if cfg.codex == "on" and now >= self.next_codex:
             try:
                 self.sources.refresh_codex(now)
@@ -230,6 +247,7 @@ class Dashboard:
                  "last_sent_at": self.last_sent_at, "last_error": self.last_error,
                  "retry_at": self.backoff.until or None, "limits_error": self.limits_error,
                  "limits_error_at": self.limits_error_at,
+                 "limits_checked_at": self.limits_checked_at,
                  "codex_error": self.codex_error}
         if state == self._last_state and now - self._last_state_write < HEARTBEAT:
             return

@@ -73,6 +73,16 @@ request.setValue("Bearer \(token)", forHTTPHeaderField: "Authorization")
 request.setValue("oauth-2025-04-20", forHTTPHeaderField: "anthropic-beta")
 request.setValue("minitoo-dashboard", forHTTPHeaderField: "User-Agent")
 
+// The API's error body: {"type": "error", "error": {"type": "...", "message": "..."}}. It holds no
+// credentials; it is shortened because it ends up in the log and `status`.
+func errorDetail(_ data: Data?) -> String? {
+    guard let data = data,
+          let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any],
+          let error = body["error"] as? [String: Any] else { return nil }
+    let text = [error["type"] as? String, error["message"] as? String].compactMap { $0 }.joined(separator: ": ")
+    return text.isEmpty ? nil : String(text.prefix(200))
+}
+
 let sema = DispatchSemaphore(value: 0)
 var output: [String: Any] = ["status": "network", "detail": "no response"]
 URLSession.shared.dataTask(with: request) { data, response, error in
@@ -81,9 +91,13 @@ URLSession.shared.dataTask(with: request) { data, response, error in
         output = ["status": "network", "detail": error.localizedDescription]
         return
     }
-    let code = (response as? HTTPURLResponse)?.statusCode ?? 0
+    let http = response as? HTTPURLResponse
+    let code = http?.statusCode ?? 0
     guard code == 200 else {
-        output = ["status": "http_\(code)", "detail": code == 401 ? "token rejected" : "unexpected HTTP status"]
+        output = ["status": "http_\(code)", "detail": errorDetail(data) ?? (code == 401 ? "token rejected" : "unexpected HTTP status")]
+        if let retry = http?.value(forHTTPHeaderField: "Retry-After").flatMap(Double.init), retry > 0 {
+            output["retry_after"] = retry
+        }
         return
     }
     guard let data = data, let body = try? JSONSerialization.jsonObject(with: data) as? [String: Any] else {

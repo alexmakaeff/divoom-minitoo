@@ -256,6 +256,53 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T)
         self.assertEqual(len(self.sends()), 1)
 
+    def claude_times(self, dash, until, step=10):
+        times, calls = [], self.sources.claude_calls
+        for t in range(0, until, step):
+            dash.tick(T + t)
+            if self.sources.claude_calls != calls:
+                calls = self.sources.claude_calls
+                times.append(t)
+        return times
+
+    def test_refused_requests_back_off_and_recover(self):
+        from minitoo_dashboard.sources.claude import RefusedError
+        self.sources.claude_error = RefusedError("usage-helper: http_403", None)
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+        self.assertEqual(self.claude_times(dash, 11401), [0, 600, 1800, 4200, 7800, 11400])
+        self.sources.claude_error = None
+        dash.tick(T + 15000)
+        self.sources.claude_error = RefusedError("usage-helper: http_403", None)
+        dash.tick(T + 15300)
+        dash.tick(T + 15600)
+        self.assertEqual(self.sources.claude_calls, 8)  # success reset the backoff to 10 min
+        dash.tick(T + 15900)
+        self.assertEqual(self.sources.claude_calls, 9)
+
+    def test_retry_after_is_honoured_and_survives_wake(self):
+        from minitoo_dashboard.sources.claude import RefusedError
+        self.sources.claude_error = RefusedError("usage-helper: http_429", 7200)
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+        dash.tick(T)
+        dash.tick(T + 1000)  # wake jump: everything else refreshes, the refused request waits
+        self.assertEqual(self.sources.claude_calls, 1)
+        self.assertEqual(self.sources.calendar_calls, 2)
+        dash.tick(T + 7200)
+        self.assertEqual(self.sources.claude_calls, 2)
+
+    def test_refresh_request_file_checks_now(self):
+        from minitoo_dashboard.sources.claude import RefusedError
+        self.sources.claude_error = RefusedError("usage-helper: http_429", 7200)
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+        dash.tick(T)
+        (self.home / "refresh-limits").touch()
+        self.sources.claude_error = None
+        dash.tick(T + 5)
+        self.assertEqual(self.sources.claude_calls, 2)
+        self.assertFalse((self.home / "refresh-limits").exists())
+        state = store.read_json(self.home / "state.json")
+        self.assertEqual((state["limits_checked_at"], state["limits_error"]), (T + 5, None))
+
     def test_codex_polled_every_five_seconds_when_on(self):
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", codex="on"))
         for t in range(0, 10):

@@ -66,7 +66,17 @@ class KeychainAccessError(DirectError):
     """usage-helper may not read the Claude Code login; only the owner can grant it."""
 
 
+class RefusedError(DirectError):
+    """The usage endpoint refused (403 no subscription access, 429 rate limited): ask again later."""
+
+    def __init__(self, message: str, retry_after: Optional[float] = None):
+        super().__init__(message)
+        self.retry_after = retry_after
+
+
 ACCESS_STATUSES = ("needs_access", "keychain_denied")
+REFUSED_STATUSES = ("http_403", "http_429")
+PLAN_HINT = "no subscription access (plan lapsed?); after renewing it can take a while"
 GRANT_HINT = "run 'minitoo-dashboard grant-keychain' and choose Always Allow"
 
 
@@ -85,6 +95,13 @@ def parse_direct(data: Any, now: float) -> dict:
         raise DirectError("usage-helper returned no JSON object")
     if data.get("status") in ACCESS_STATUSES:
         raise KeychainAccessError(f"usage-helper: {data.get('detail') or 'no Keychain access'}; {GRANT_HINT}")
+    if data.get("status") in REFUSED_STATUSES:
+        retry = data.get("retry_after")
+        retry = float(retry) if isinstance(retry, (int, float)) and retry > 0 else None
+        message = f"usage-helper: {data['status']} {data.get('detail', '')}".strip()
+        if data["status"] == "http_403":
+            message += f"; {PLAN_HINT}"
+        raise RefusedError(message, retry)
     if data.get("status") != "ok":
         raise DirectError(f"usage-helper: {data.get('status', 'error')} {data.get('detail', '')}".strip())
     record: dict = {"captured_at": now, "source": "direct"}

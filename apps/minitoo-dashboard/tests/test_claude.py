@@ -82,6 +82,18 @@ class DirectUsageTest(unittest.TestCase):
                 claude.parse_direct({"status": status}, 0)
             self.assertIn("minitoo-dashboard grant-keychain", str(ctx.exception))
 
+    def test_rate_limit_carries_retry_after(self):
+        with self.assertRaises(claude.RefusedError) as ctx:
+            claude.parse_direct({"status": "http_429", "detail": "rate_limit_error: slow down", "retry_after": 120}, 0)
+        self.assertEqual(ctx.exception.retry_after, 120)
+        self.assertIn("slow down", str(ctx.exception))
+
+    def test_forbidden_is_refused_with_plan_hint(self):
+        with self.assertRaises(claude.RefusedError) as ctx:
+            claude.parse_direct({"status": "http_403", "detail": "permission_error: no access"}, 0)
+        self.assertIsNone(ctx.exception.retry_after)
+        self.assertIn("subscription", str(ctx.exception))
+
     def test_missing_windows_raise(self):
         with self.assertRaises(claude.DirectError):
             claude.parse_direct({"status": "ok"}, 0)

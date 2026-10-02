@@ -89,6 +89,7 @@ minitoo-dashboard pause            # release the device (e.g. for the phone app)
 minitoo-dashboard resume
 minitoo-dashboard logs
 minitoo-dashboard grant-keychain   # CLAUDE_LIMITS=direct: allow Keychain access (shows the prompt)
+minitoo-dashboard refresh-limits   # CLAUDE_LIMITS=direct: check Claude limits now
 ```
 
 In Claude Code: `/dashboard-city Kazan`. When a name matches several places,
@@ -136,6 +137,10 @@ every second.
   - an expired token is skipped, not refreshed. It renews the next time Claude
     Code runs.
 
+  If the endpoint refuses (403 without an active subscription, 429 rate
+  limited), the daemon waits 10, 20, 40, then 60 minutes between attempts
+  (longer if the server sends `Retry-After`); sleep/wake does not cut the wait
+  short. `minitoo-dashboard refresh-limits` checks at once.
   If a direct request fails, the dashboard keeps the last numbers, the status
   line still updates them, and `minitoo-dashboard status` shows the error. To
   switch, run `minitoo-dashboard init --claude-limits direct` (or `statusline`).
@@ -215,6 +220,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   Keychain grant. It happens after rebuilding `usage-helper` and can happen
   when Claude Code rewrites its login item. Run `minitoo-dashboard grant-keychain`
   and choose *Always Allow*.
+- **`http_403` or `http_429` in `status`.** The endpoint refused: usually the
+  subscription lapsed (403), and repeated refusals get rate limited (429). After
+  renewing, run `minitoo-dashboard refresh-limits`; if it still fails, start
+  `claude` in Terminal so Claude Code renews its login, then try again.
 - **You already had a status line.** Add
   `printf '%s' "$input" | "<path>/bin/statusline.py"` near the top of your
   script, after it reads stdin into `$input`.

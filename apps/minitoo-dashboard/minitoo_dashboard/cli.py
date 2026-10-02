@@ -132,6 +132,29 @@ def cmd_grant_keychain(args) -> int:
     return 0
 
 
+def cmd_refresh_limits(args) -> int:
+    """Ask the daemon to check Claude limits now (skipping any backoff) and report the result."""
+    state = store.read_json(paths.state_path()) or {}
+    if time.time() - state.get("updated_at", 0) >= 90:
+        print("The dashboard daemon is not running.", file=sys.stderr)
+        return 1
+    asked = time.time()
+    request = paths.home() / "refresh-limits"
+    request.touch()
+    for _ in range(60):
+        time.sleep(0.5)
+        state = store.read_json(paths.state_path()) or {}
+        if (state.get("limits_checked_at") or 0) >= asked:
+            if state.get("limits_error"):
+                print(f"Did not work: {state['limits_error']}", file=sys.stderr)
+                return 1
+            print("Claude limits updated ✓")
+            return 0
+    request.unlink(missing_ok=True)
+    print("The daemon did not answer within 30 s; see 'minitoo-dashboard logs'.", file=sys.stderr)
+    return 1
+
+
 def cmd_preview(args) -> int:
     now = time.time()
     cfg = config.load_config()
@@ -196,6 +219,7 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("name", nargs="+")
     p.add_argument("--pick", type=int)
     sub.add_parser("status", help="show what the dashboard is doing")
+    sub.add_parser("refresh-limits", help="check Claude limits now (CLAUDE_LIMITS=direct)")
     sub.add_parser("grant-keychain", help="let usage-helper read the Claude Code login (shows the macOS prompt)")
     p = sub.add_parser("preview", help="render pages to PNG without a device")
     p.add_argument("--demo", action="store_true", help="use sample data")
@@ -210,4 +234,4 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
         return cmd_city(args, geocode or weather.geocode)
     return {"run": cmd_run, "init": cmd_init, "status": cmd_status, "preview": cmd_preview,
             "pause": cmd_pause, "resume": cmd_resume, "logs": cmd_logs,
-            "grant-keychain": cmd_grant_keychain}[args.command](args)
+            "grant-keychain": cmd_grant_keychain, "refresh-limits": cmd_refresh_limits}[args.command](args)

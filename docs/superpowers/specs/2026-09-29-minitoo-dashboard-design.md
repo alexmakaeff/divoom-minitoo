@@ -208,6 +208,17 @@ helper ran (and prompted) every ~50 s for an hour, 66 runs in total. Fixes:
   never a dialog) per episode: again only after access came back and was lost
   again, or after a daemon restart.
 
+### Amendment (2026-10-02): refused usage requests
+
+After the owner's plan lapsed (2026-10-02 11:38) the endpoint answered 403, then
+alternately 429, every 5 minutes; after renewing it kept refusing. Changes:
+`usage-helper` reports the API error type/message (≤200 chars, no credentials)
+and `Retry-After`. The daemon treats 403/429 as `RefusedError` and backs off
+10/20/40/60 min (or `Retry-After` if longer); a wake does not cut the hold
+short; success resets it. `minitoo-dashboard refresh-limits` drops a
+`refresh-limits` file the daemon consumes to check at once, and reports the
+result from `state.json` (`limits_checked_at`).
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

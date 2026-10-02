@@ -127,9 +127,9 @@ every second.
   `minitoo-dashboard grant-keychain`) runs it once in the foreground, and macOS
   asks whether `usage-helper` may use the "Claude Code-credentials" item.
   Choose *Always Allow*: the grant covers only this helper. The background
-  daemon never shows that prompt: if access is lost, it falls back to the
-  status line, retries every 30 minutes and `status` tells you to run
-  `grant-keychain`. Be aware that:
+  daemon never shows that prompt: if access is lost, it shows one macOS
+  notification, falls back to the status line, retries every 30 minutes and
+  `status` tells you to run `grant-keychain`. Be aware that:
   - the endpoint is **undocumented** and may change or disappear at any time;
   - using a subscription token outside Claude Code is a grey area in
     Anthropic's terms;

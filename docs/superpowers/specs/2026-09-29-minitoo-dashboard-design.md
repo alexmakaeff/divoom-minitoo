@@ -204,6 +204,9 @@ helper ran (and prompted) every ~50 s for an hour, 66 runs in total. Fixes:
 - A Keychain access error retries every 30 min instead of 5 and is logged
   once per distinct message. `status` hints at `grant-keychain` and hides the
   error once newer limits are cached.
+- Losing access shows one macOS notification (`osascript display notification`,
+  never a dialog) per episode: again only after access came back and was lost
+  again, or after a daemon restart.
 
 ## 3. Architecture
 

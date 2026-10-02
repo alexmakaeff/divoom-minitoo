@@ -2,11 +2,12 @@ from __future__ import annotations
 
 import logging
 import logging.handlers
+import subprocess
 import time
 from pathlib import Path
 from typing import Any, Callable, Optional, Tuple
 
-from . import config as config_mod, encode, paths, render, store
+from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
 from .sources.claude import KeychainAccessError
@@ -25,6 +26,13 @@ WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
 BACKOFF = (30, 60, 120, 300)
+
+
+def macos_notify(title: str, body: str) -> None:
+    """One silent macOS notification; never a dialog that waits for an answer."""
+    script = ["on run argv", "display notification (item 2 of argv) with title (item 1 of argv)", "end run"]
+    args = [part for line in script for part in ("-e", line)]
+    subprocess.run(["osascript", *args, title, body], capture_output=True, timeout=10, check=True)
 
 
 class Backoff:
@@ -59,8 +67,9 @@ class Dashboard:
                  dashboard_blob: Callable[..., bytes] = default_dashboard_blob,
                  alert_blob: Callable[..., bytes] = default_alert_blob,
                  home: Optional[Path] = None,
-                 monotonic: Callable[[], float] = time.monotonic):
-        self.monotonic = monotonic
+                 monotonic: Callable[[], float] = time.monotonic,
+                 notify: Callable[[str, str], None] = macos_notify):
+        self.monotonic, self.notify = monotonic, notify
         self.sources, self.device_for, self.load_config = sources, device_for, load_config
         self.clauddy_alert, self.dashboard_blob, self.alert_blob = clauddy_alert, dashboard_blob, alert_blob
         self.home = Path(home or paths.home())
@@ -76,6 +85,7 @@ class Dashboard:
         self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
         self.limits_error: Optional[str] = None
         self.limits_error_at: Optional[float] = None
+        self.keychain_lost = False  # notified about this loss of access already
         self.codex_error: Optional[str] = None
         self.codex_error_logged = 0.0
         self.weather_key: Any = None
@@ -155,12 +165,16 @@ class Dashboard:
             try:
                 self.sources.refresh_claude(now)
                 self.limits_error = self.limits_error_at = None
+                self.keychain_lost = False
             except Exception as exc:  # expired token, endpoint change, no network: keep last data
                 error = str(exc)
                 if isinstance(exc, KeychainAccessError):
                     self.next_claude = now + CLAUDE_ACCESS_RETRY
                     if error != self.limits_error:
                         log.warning("direct Claude limits need Keychain access: %s", error)
+                    if not self.keychain_lost:
+                        self.keychain_lost = True
+                        self._notify_keychain(cfg)
                 else:
                     log.warning("direct Claude limits failed: %s", error)
                 self.limits_error, self.limits_error_at = error, now
@@ -178,6 +192,12 @@ class Dashboard:
                     log.info("Codex refresh recovered")
                     self.codex_error = None
             self.next_codex = now + CODEX_EVERY
+
+    def _notify_keychain(self, cfg: config_mod.Config) -> None:
+        try:
+            self.notify(i18n.t(cfg.lang, "keychain_title"), i18n.t(cfg.lang, "keychain_body"))
+        except Exception as exc:  # no osascript, notifications off: the log and `status` still say it
+            log.warning("could not show the Keychain notification: %s", exc)
 
     def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
         if self.alert_shown:

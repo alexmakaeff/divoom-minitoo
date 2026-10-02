@@ -79,6 +79,7 @@ class DashboardTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.sources, self.device = FakeSources(), FakeDevice()
+        self.notices = []
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -88,7 +89,8 @@ class DashboardTest(unittest.TestCase):
                          clauddy_alert=lambda: alert,
                          dashboard_blob=lambda model, c: repr(model).encode(),
                          alert_blob=lambda c: b"ALERT", home=self.home,
-                         monotonic=monotonic or (lambda: 0.0))
+                         monotonic=monotonic or (lambda: 0.0),
+                         notify=lambda title, body: self.notices.append((title, body)))
 
     def sends(self):
         return [c for c in self.device.calls if c[0] in ("rawfile", "clock")]
@@ -223,6 +225,36 @@ class DashboardTest(unittest.TestCase):
         self.sources.claude_error = None
         dash.tick(T + 3600)
         self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
+
+    def test_lost_keychain_access_notifies_once_per_episode(self):
+        from minitoo_dashboard.sources.claude import DirectError, KeychainAccessError
+        cfg = Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct", lang="ru")
+        dash = self.make(cfg=cfg)
+        self.sources.claude_error = DirectError("network")
+        dash.tick(T)
+        self.assertEqual(self.notices, [])  # ordinary failures stay quiet
+        self.sources.claude_error = KeychainAccessError("Keychain access needed")
+        for t in range(300, 4000, 10):
+            dash.tick(T + t)
+        self.assertEqual(len(self.notices), 1)
+        self.assertIn("grant-keychain", self.notices[0][1])
+        self.assertIn("Keychain", self.notices[0][1])
+        self.sources.claude_error = None
+        dash.tick(T + 6000)
+        self.sources.claude_error = KeychainAccessError("Keychain access needed")
+        dash.tick(T + 6300)
+        self.assertEqual(len(self.notices), 2)  # access came back, then was lost again
+
+    def test_notification_failure_does_not_break_tick(self):
+        from minitoo_dashboard.sources.claude import KeychainAccessError
+        self.sources.claude_error = KeychainAccessError("Keychain access needed")
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+
+        def broken(title, body):
+            raise OSError("osascript missing")
+        dash.notify = broken
+        dash.tick(T)
+        self.assertEqual(len(self.sends()), 1)
 
     def test_codex_polled_every_five_seconds_when_on(self):
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", codex="on"))

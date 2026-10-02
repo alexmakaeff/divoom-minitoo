@@ -10,7 +10,8 @@ from PIL import Image
 
 from . import config, paths, render, store
 from .collect import Sources
-from .sources import codex, weather
+from .collect import USAGE_HELPER
+from .sources import claude, codex, weather
 
 
 def _ago(ts: Optional[float], now: float) -> str:
@@ -101,7 +102,9 @@ def cmd_status(args) -> int:
     captured = f"captured {_ago(c.get('captured_at'), now)} via {c.get('source', 'statusline')}" \
         if isinstance(c, dict) else "no data yet"
     print(f"Claude limits: {captured}   (source setting: {cfg.claude_limits})")
-    if state.get("limits_error"):
+    error_at = state.get("limits_error_at") or 0
+    fixed_since = isinstance(c, dict) and (c.get("captured_at") or 0) > error_at
+    if state.get("limits_error") and not fixed_since:
         print(f"Limits error:  {state['limits_error']}")
     if cfg.codex == "on":
         x = store.read_json(cache / "codex.json")
@@ -112,6 +115,20 @@ def cmd_status(args) -> int:
             print(f"Codex error:   {state['codex_error']}")
     else:
         print("Codex limits:  off (set CODEX=on in the config to show them)")
+    return 0
+
+
+def cmd_grant_keychain(args) -> int:
+    print("macOS will ask to let 'usage-helper' use the 'Claude Code-credentials' Keychain item.")
+    print("Choose 'Always Allow'. The background dashboard never shows this prompt itself.")
+    now = time.time()
+    try:
+        record = claude.fetch_direct(USAGE_HELPER, now, timeout=300, interactive=True)
+    except claude.DirectError as exc:
+        print(f"Did not work: {exc}", file=sys.stderr)
+        return 1
+    store.write_json_atomic(paths.cache_dir() / "claude.json", record)
+    print("Keychain access granted; direct Claude limits work ✓")
     return 0
 
 
@@ -179,6 +196,7 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("name", nargs="+")
     p.add_argument("--pick", type=int)
     sub.add_parser("status", help="show what the dashboard is doing")
+    sub.add_parser("grant-keychain", help="let usage-helper read the Claude Code login (shows the macOS prompt)")
     p = sub.add_parser("preview", help="render pages to PNG without a device")
     p.add_argument("--demo", action="store_true", help="use sample data")
     p.add_argument("--out")
@@ -191,4 +209,5 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     if args.command == "city":
         return cmd_city(args, geocode or weather.geocode)
     return {"run": cmd_run, "init": cmd_init, "status": cmd_status, "preview": cmd_preview,
-            "pause": cmd_pause, "resume": cmd_resume, "logs": cmd_logs}[args.command](args)
+            "pause": cmd_pause, "resume": cmd_resume, "logs": cmd_logs,
+            "grant-keychain": cmd_grant_keychain}[args.command](args)

@@ -10,8 +10,14 @@ import Security
 // printed, logged or refreshed (refreshing could sign Claude Code out).
 // Being a separate binary, it is the only program the user's "Always Allow"
 // Keychain grant applies to.
+//
+// Without --interactive it never shows the Keychain prompt: when access is
+// missing (for example after Claude Code rewrote the item) it reports
+// "needs_access" at once. The daemon runs it that way; prompts piled up
+// unanswered otherwise. `minitoo-dashboard grant-keychain` passes --interactive.
 
 let service = "Claude Code-credentials"
+let interactive = CommandLine.arguments.dropFirst().contains("--interactive")
 let endpoint = URL(string: "https://api.anthropic.com/api/oauth/usage")!
 
 func emit(_ object: [String: Any]) -> Never {
@@ -22,20 +28,29 @@ func emit(_ object: [String: Any]) -> Never {
 }
 
 func readCredentials() -> Data {
-    let query: [String: Any] = [
+    var query: [String: Any] = [
         kSecClass as String: kSecClassGenericPassword,
         kSecAttrService as String: service,
         kSecReturnData as String: true,
         kSecMatchLimit as String: kSecMatchLimitOne,
     ]
+    if !interactive {
+        // The login keychain is a file keychain: its ACL prompt obeys the legacy switch.
+        SecKeychainSetUserInteractionAllowed(false)
+        query[kSecUseAuthenticationUI as String] = kSecUseAuthenticationUIFail
+    }
     var item: CFTypeRef?
     let status = SecItemCopyMatching(query as CFDictionary, &item)
+    if !interactive { SecKeychainSetUserInteractionAllowed(true) }  // restore the default at once
     switch status {
     case errSecSuccess:
         guard let data = item as? Data else { emit(["status": "format", "detail": "keychain item has no data"]) }
         return data
     case errSecItemNotFound:
         emit(["status": "no_token", "detail": "Claude Code login not found in Keychain"])
+    case _ where !interactive && (status == errSecInteractionNotAllowed || status == errSecAuthFailed):
+        // With the prompt suppressed, a missing grant comes back as either code.
+        emit(["status": "needs_access", "detail": "no Keychain access for usage-helper (prompt suppressed)"])
     case errSecUserCanceled, errSecAuthFailed, errSecInteractionNotAllowed:
         emit(["status": "keychain_denied", "detail": "Keychain access was not allowed (OSStatus \(status))"])
     default:

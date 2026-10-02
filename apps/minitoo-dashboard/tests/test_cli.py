@@ -79,6 +79,39 @@ class CliTest(unittest.TestCase):
         _, out = self.run_cli(["status"])
         self.assertIn("Codex error:   disk full", out)
 
+    def test_status_hides_limits_error_older_than_data(self):
+        from minitoo_dashboard import store
+        store.write_json_atomic(self.home / "state.json",
+                                {"updated_at": 1.0, "limits_error": "Keychain access needed", "limits_error_at": 100.0})
+        store.write_json_atomic(self.home / "cache" / "claude.json", {"captured_at": 50.0, "source": "direct"})
+        _, out = self.run_cli(["status"])
+        self.assertIn("Limits error:  Keychain access needed", out)
+        store.write_json_atomic(self.home / "cache" / "claude.json", {"captured_at": 200.0, "source": "direct"})
+        _, out = self.run_cli(["status"])
+        self.assertNotIn("Limits error", out)
+
+    def test_grant_keychain_runs_helper_interactively_and_caches(self):
+        from minitoo_dashboard import store
+        calls = []
+
+        def fetch(helper, now, interactive=False, **kw):
+            calls.append(interactive)
+            return {"captured_at": now, "source": "direct"}
+        with mock.patch("minitoo_dashboard.sources.claude.fetch_direct", fetch):
+            code, out = self.run_cli(["grant-keychain"])
+        self.assertEqual((code, calls), (0, [True]))
+        self.assertEqual(store.read_json(self.home / "cache" / "claude.json")["source"], "direct")
+
+    def test_grant_keychain_reports_failure(self):
+        from minitoo_dashboard.sources.claude import KeychainAccessError
+
+        def fetch(helper, now, interactive=False, **kw):
+            raise KeychainAccessError("Keychain access was not allowed")
+        with mock.patch("minitoo_dashboard.sources.claude.fetch_direct", fetch):
+            code, out = self.run_cli(["grant-keychain"])
+        self.assertEqual(code, 1)
+        self.assertIn("not allowed", out)
+
     def test_pause_resume(self):
         self.run_cli(["pause"])
         self.assertTrue((self.home / "paused").exists())

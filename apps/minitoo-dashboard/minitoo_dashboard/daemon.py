@@ -9,6 +9,7 @@ from typing import Any, Callable, Optional, Tuple
 from . import config as config_mod, encode, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
+from .sources.claude import KeychainAccessError
 
 log = logging.getLogger("minitoo_dashboard")
 log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches the file handler
@@ -17,6 +18,7 @@ WEATHER_EVERY = 900
 WEATHER_RETRY = 300
 CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
+CLAUDE_ACCESS_RETRY = 1800  # no Keychain access: only the owner can fix it (grant-keychain)
 CODEX_EVERY = 5  # local log reads only
 CODEX_LOG_EVERY = 600  # repeat an unchanged Codex error in the log at most this often
 WAKE_JUMP = 30
@@ -56,7 +58,9 @@ class Dashboard:
                  clauddy_alert: Callable[[], Optional[Tuple[int, int]]] = config_mod.clauddy_alert,
                  dashboard_blob: Callable[..., bytes] = default_dashboard_blob,
                  alert_blob: Callable[..., bytes] = default_alert_blob,
-                 home: Optional[Path] = None):
+                 home: Optional[Path] = None,
+                 monotonic: Callable[[], float] = time.monotonic):
+        self.monotonic = monotonic
         self.sources, self.device_for, self.load_config = sources, device_for, load_config
         self.clauddy_alert, self.dashboard_blob, self.alert_blob = clauddy_alert, dashboard_blob, alert_blob
         self.home = Path(home or paths.home())
@@ -71,6 +75,7 @@ class Dashboard:
         self.last_tick: Optional[float] = None
         self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
         self.limits_error: Optional[str] = None
+        self.limits_error_at: Optional[float] = None
         self.codex_error: Optional[str] = None
         self.codex_error_logged = 0.0
         self.weather_key: Any = None
@@ -86,13 +91,21 @@ class Dashboard:
         return self.device
 
     def tick(self, now: float) -> None:
+        # last_tick is when the previous tick *ended*: slow work inside a tick (a hung helper,
+        # a device timeout) must not look like sleep/wake, or it re-runs itself every tick.
+        started = self.monotonic()
+        try:
+            self._tick(now)
+        finally:
+            self.last_tick = now + (self.monotonic() - started)
+
+    def _tick(self, now: float) -> None:
         cfg = self.load_config()
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
             self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
             self.last_blob = None
             self.backoff.ok()
-        self.last_tick = now
         device = self._device(cfg)
 
         if (self.home / "paused").exists():
@@ -138,13 +151,19 @@ class Dashboard:
                 log.warning("calendar refresh failed: %s", exc)
             self.next_calendar = now + CALENDAR_EVERY
         if cfg.claude_limits == "direct" and now >= self.next_claude:
+            self.next_claude = now + CLAUDE_EVERY
             try:
                 self.sources.refresh_claude(now)
-                self.limits_error = None
+                self.limits_error = self.limits_error_at = None
             except Exception as exc:  # expired token, endpoint change, no network: keep last data
-                self.limits_error = str(exc)
-                log.warning("direct Claude limits failed: %s", exc)
-            self.next_claude = now + CLAUDE_EVERY
+                error = str(exc)
+                if isinstance(exc, KeychainAccessError):
+                    self.next_claude = now + CLAUDE_ACCESS_RETRY
+                    if error != self.limits_error:
+                        log.warning("direct Claude limits need Keychain access: %s", error)
+                else:
+                    log.warning("direct Claude limits failed: %s", error)
+                self.limits_error, self.limits_error_at = error, now
         if cfg.codex == "on" and now >= self.next_codex:
             try:
                 self.sources.refresh_codex(now)
@@ -190,6 +209,7 @@ class Dashboard:
         state = {"status": self.status, "shown": shown, "paused": self.paused,
                  "last_sent_at": self.last_sent_at, "last_error": self.last_error,
                  "retry_at": self.backoff.until or None, "limits_error": self.limits_error,
+                 "limits_error_at": self.limits_error_at,
                  "codex_error": self.codex_error}
         if state == self._last_state and now - self._last_state_write < HEARTBEAT:
             return

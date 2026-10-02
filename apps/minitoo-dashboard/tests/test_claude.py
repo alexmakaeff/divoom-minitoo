@@ -76,6 +76,12 @@ class DirectUsageTest(unittest.TestCase):
             claude.parse_direct({"status": "expired"}, 0)
         self.assertIn("expired", str(ctx.exception))
 
+    def test_keychain_access_statuses_raise_access_error(self):
+        for status in ("needs_access", "keychain_denied"):
+            with self.assertRaises(claude.KeychainAccessError) as ctx:
+                claude.parse_direct({"status": status}, 0)
+            self.assertIn("minitoo-dashboard grant-keychain", str(ctx.exception))
+
     def test_missing_windows_raise(self):
         with self.assertRaises(claude.DirectError):
             claude.parse_direct({"status": "ok"}, 0)
@@ -95,6 +101,16 @@ class DirectUsageTest(unittest.TestCase):
         rec = claude.fetch_direct(Path("/x/usage-helper"), 5.0, run=run)
         self.assertEqual(calls, [["/x/usage-helper"]])
         self.assertEqual(rec["five_hour"]["used_percentage"], 62.0)
+
+    def test_fetch_interactive_passes_flag(self):
+        import subprocess as sp
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append(cmd)
+            return sp.CompletedProcess(cmd, 0, json.dumps(self.HELPER_OK), "")
+        claude.fetch_direct(Path("/x/usage-helper"), 5.0, run=run, interactive=True)
+        self.assertEqual(calls, [["/x/usage-helper", "--interactive"]])
 
     def test_fetch_bad_output_raises(self):
         import subprocess as sp

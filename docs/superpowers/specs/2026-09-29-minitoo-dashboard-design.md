@@ -187,6 +187,24 @@ source broke.
 when `~/.codex` exists and otherwise leaves the setting alone. `status` reports when the Codex data was captured and
 whether Codex is working.
 
+### Amendment (2026-10-02): no background Keychain prompts
+
+Incident on 2026-10-02: Claude Code rewrote its Keychain item at 07:13 and the
+helper's grant stopped applying. Each helper run then waited 30 s for an
+unanswered prompt, and with the device out of range `dv start` added ~20 s.
+The daemon took the ~50 s tick for sleep/wake and refreshed everything, so the
+helper ran (and prompted) every ~50 s for an hour, 66 runs in total. Fixes:
+
+- Wake detection measures the gap from the end of the previous tick, so slow
+  work inside a tick is never mistaken for sleep.
+- `usage-helper` is non-interactive by default (`SecKeychainSetUserInteractionAllowed(false)`
+  plus `kSecUseAuthenticationUIFail`; the login keychain is a file keychain).
+  Missing access returns `needs_access` at once. Only `--interactive` may prompt,
+  and only `install.sh` and `minitoo-dashboard grant-keychain` pass it.
+- A Keychain access error retries every 30 min instead of 5 and is logged
+  once per distinct message. `status` hints at `grant-keychain` and hides the
+  error once newer limits are cached.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

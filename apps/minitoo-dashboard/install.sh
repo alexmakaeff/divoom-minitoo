@@ -82,7 +82,7 @@ if [ "$(ask 'Choose 1 or 2 [1]: ' 1)" = 2 ]; then
   "$APP_DIR/usage-helper/build.sh" >/dev/null
   note "macOS will ask to let 'usage-helper' use the 'Claude Code-credentials' Keychain item."
   note "Choose 'Always Allow' so the dashboard can check every 5 minutes."
-  if "$APP_DIR/usage-helper/usage-helper" >/dev/null; then
+  if "$APP_DIR/usage-helper/usage-helper" --interactive >/dev/null; then
     limits=direct
     note "Direct Claude limits: working ✓"
   else

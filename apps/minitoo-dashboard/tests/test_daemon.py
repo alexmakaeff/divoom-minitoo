@@ -30,9 +30,15 @@ class FakeSources:
 
     claude_calls = 0
     claude_fails = False
+    claude_error = None
+    on_claude = None
 
     def refresh_claude(self, now):
         self.claude_calls += 1
+        if self.on_claude:
+            self.on_claude()
+        if self.claude_error:
+            raise self.claude_error
         if self.claude_fails:
             from minitoo_dashboard.sources.claude import DirectError
             raise DirectError("expired")
@@ -77,11 +83,12 @@ class DashboardTest(unittest.TestCase):
     def tearDown(self):
         self.tmp.cleanup()
 
-    def make(self, alert=(988, 1), cfg=CFG):
+    def make(self, alert=(988, 1), cfg=CFG, monotonic=None):
         return Dashboard(sources=self.sources, device_for=lambda mac: self.device, load_config=lambda: cfg,
                          clauddy_alert=lambda: alert,
                          dashboard_blob=lambda model, c: repr(model).encode(),
-                         alert_blob=lambda c: b"ALERT", home=self.home)
+                         alert_blob=lambda c: b"ALERT", home=self.home,
+                         monotonic=monotonic or (lambda: 0.0))
 
     def sends(self):
         return [c for c in self.device.calls if c[0] in ("rawfile", "clock")]
@@ -153,6 +160,20 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(self.sources.weather_calls, 2)
         self.assertEqual(len(self.sends()), 2)
 
+    def test_slow_tick_is_not_mistaken_for_wake(self):
+        # A 30 s Keychain wait plus a 20 s device timeout used to look like sleep/wake,
+        # which re-ran usage-helper every ~50 s and stacked Keychain prompts.
+        clock = [0.0]
+        self.sources.on_claude = lambda: clock.__setitem__(0, clock[0] + 30)
+        self.device.fail = True
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"),
+                         monotonic=lambda: clock[0])
+        dash.tick(T)
+        clock[0] += 1
+        dash.tick(T + 31)  # wall clock moved only by the time the slow tick took, plus the 1 s sleep
+        self.assertEqual(self.sources.claude_calls, 1)
+        self.assertEqual(self.sources.calendar_calls, 1)
+
     def test_weather_failure_retries_later_and_still_sends(self):
         self.sources.weather_fails = True
         dash = self.make()
@@ -186,6 +207,22 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T)
         self.assertIn("expired", store.read_json(self.home / "state.json")["limits_error"])
         self.assertEqual(len(self.sends()), 1)
+
+    def test_keychain_access_error_backs_off_and_logs_once(self):
+        from minitoo_dashboard.sources.claude import KeychainAccessError
+        self.sources.claude_error = KeychainAccessError("Keychain access needed")
+        dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            for t in range(0, 3600, 10):
+                dash.tick(T + t)
+        self.assertEqual(self.sources.claude_calls, 2)  # every 30 min, not every 5
+        self.assertEqual(sum("Keychain access needed" in line for line in logs.output), 1)
+        state = store.read_json(self.home / "state.json")
+        self.assertIn("Keychain access needed", state["limits_error"])
+        self.assertEqual(state["limits_error_at"], T + 1800)
+        self.sources.claude_error = None
+        dash.tick(T + 3600)
+        self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
 
     def test_codex_polled_every_five_seconds_when_on(self):
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", codex="on"))

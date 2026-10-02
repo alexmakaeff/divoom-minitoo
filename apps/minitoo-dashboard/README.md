@@ -88,6 +88,7 @@ minitoo-dashboard preview          # render the current screen to PNG
 minitoo-dashboard pause            # release the device (e.g. for the phone app)
 minitoo-dashboard resume
 minitoo-dashboard logs
+minitoo-dashboard grant-keychain   # CLAUDE_LIMITS=direct: allow Keychain access (shows the prompt)
 ```
 
 In Claude Code: `/dashboard-city Kazan`. When a name matches several places,
@@ -122,9 +123,13 @@ every second.
 - **`direct` (opt-in).** Every 5 minutes a small helper, `usage-helper`, reads
   Claude Code's login from the macOS Keychain and asks the same endpoint that
   Claude Code's `/usage` uses. Only percentages and reset times leave the
-  helper; the token is never printed, stored or refreshed. On first run macOS
+  helper; the token is never printed, stored or refreshed. The installer (or
+  `minitoo-dashboard grant-keychain`) runs it once in the foreground, and macOS
   asks whether `usage-helper` may use the "Claude Code-credentials" item.
-  Choose *Always Allow*: the grant covers only this helper. Be aware that:
+  Choose *Always Allow*: the grant covers only this helper. The background
+  daemon never shows that prompt: if access is lost, it falls back to the
+  status line, retries every 30 minutes and `status` tells you to run
+  `grant-keychain`. Be aware that:
   - the endpoint is **undocumented** and may change or disappear at any time;
   - using a subscription token outside Claude Code is a grey area in
     Anthropic's terms;
@@ -134,7 +139,7 @@ every second.
   If a direct request fails, the dashboard keeps the last numbers, the status
   line still updates them, and `minitoo-dashboard status` shows the error. To
   switch, run `minitoo-dashboard init --claude-limits direct` (or `statusline`).
-  After rebuilding `usage-helper`, macOS asks for Keychain access again.
+  After rebuilding `usage-helper`, run `minitoo-dashboard grant-keychain` again.
 
 ## Where Codex limits come from
 
@@ -206,6 +211,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   Claude desktop app's Code tab and the VS Code extension do not run status
   line commands, so limits refresh only while you use the terminal CLI, unless you
   enable `CLAUDE_LIMITS=direct`.
+- **"Keychain access needed" in `status`.** macOS dropped the helper's
+  Keychain grant. It happens after rebuilding `usage-helper` and can happen
+  when Claude Code rewrites its login item. Run `minitoo-dashboard grant-keychain`
+  and choose *Always Allow*.
 - **You already had a status line.** Add
   `printf '%s' "$input" | "<path>/bin/statusline.py"` near the top of your
   script, after it reads stdin into `$input`.

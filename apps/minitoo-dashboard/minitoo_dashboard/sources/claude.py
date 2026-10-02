@@ -62,6 +62,14 @@ class DirectError(Exception):
     pass
 
 
+class KeychainAccessError(DirectError):
+    """usage-helper may not read the Claude Code login; only the owner can grant it."""
+
+
+ACCESS_STATUSES = ("needs_access", "keychain_denied")
+GRANT_HINT = "run 'minitoo-dashboard grant-keychain' and choose Always Allow"
+
+
 def iso_epoch(value: Any) -> Optional[float]:
     if not isinstance(value, str):
         return None
@@ -75,6 +83,8 @@ def parse_direct(data: Any, now: float) -> dict:
     """Turn usage-helper output into the same cache record the status line writes."""
     if not isinstance(data, dict):
         raise DirectError("usage-helper returned no JSON object")
+    if data.get("status") in ACCESS_STATUSES:
+        raise KeychainAccessError(f"usage-helper: {data.get('detail') or 'no Keychain access'}; {GRANT_HINT}")
     if data.get("status") != "ok":
         raise DirectError(f"usage-helper: {data.get('status', 'error')} {data.get('detail', '')}".strip())
     record: dict = {"captured_at": now, "source": "direct"}
@@ -90,9 +100,12 @@ def parse_direct(data: Any, now: float) -> dict:
     return record
 
 
-def fetch_direct(helper: Path, now: float, run: Callable[..., Any] = subprocess.run, timeout: float = 30) -> dict:
+def fetch_direct(helper: Path, now: float, run: Callable[..., Any] = subprocess.run, timeout: float = 30,
+                 interactive: bool = False) -> dict:
+    """Run usage-helper. Only `interactive` lets macOS show the Keychain prompt; the daemon never does."""
+    cmd = [str(helper), "--interactive"] if interactive else [str(helper)]
     try:
-        result = run([str(helper)], capture_output=True, text=True, timeout=timeout)
+        result = run(cmd, capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.TimeoutExpired) as exc:
         raise DirectError(f"usage-helper did not run: {exc}")
     try:

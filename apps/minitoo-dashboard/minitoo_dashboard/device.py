@@ -9,6 +9,7 @@ from typing import Any, Callable, List, Optional
 from . import paths
 
 DEFAULT_FIFO = Path(os.environ.get("DIVOOM_FIFO", "/tmp/divoom.fifo"))
+DEFAULT_LOG = Path("/tmp/divoom-send.log")  # core/dv: LOG, truncated by every `dv start`
 
 
 class DeviceError(Exception):
@@ -25,11 +26,12 @@ def selector_json(clock_id: int, device_id: int) -> str:
 
 class Device:
     def __init__(self, mac: str, dv: Optional[str] = None, fifo: Path = DEFAULT_FIFO,
-                 run: Callable[..., Any] = subprocess.run):
+                 run: Callable[..., Any] = subprocess.run, log: Path = DEFAULT_LOG):
         self.mac = mac
         self.dv = str(dv or paths.CORE_DIR / "dv")
         self.fifo = Path(fifo)
         self.run = run
+        self.log = Path(log)
 
     def _call(self, args: List[str], timeout: float) -> None:
         try:
@@ -60,11 +62,32 @@ class Device:
             pass
         self._call(["start", self.mac], timeout=20)
 
-    def send_rawfile(self, path: Path, delay_ms: int) -> None:
+    def send_rawfile(self, path: Path, delay_ms: int) -> int:
+        """Send; returns the log mark to pass to replied_since() (dv acks at the FIFO, not the device)."""
         if " " in str(path):
             raise ValueError("rawfile path must not contain spaces (dv splits FIFO lines on spaces)")
         self.ensure_daemon()
+        mark = self.log_mark()
         self._call(["rawfile", str(path), str(delay_ms)], timeout=15)
+        return mark
+
+    def log_mark(self) -> int:
+        try:
+            return self.log.stat().st_size
+        except OSError:
+            return 0
+
+    def replied_since(self, mark: int) -> bool:
+        """Has the MiniToo sent anything since mark? It acks each upload and broadcasts every second."""
+        try:
+            with open(self.log, "rb") as fh:
+                if fh.seek(0, 2) >= mark:  # smaller: `dv start` reconnected and truncated the log
+                    fh.seek(mark)
+                else:
+                    fh.seek(0)
+                return b"rx[" in fh.read()
+        except OSError:
+            return False
 
     def select_clock(self, clock_id: int, device_id: int) -> None:
         self.ensure_daemon()

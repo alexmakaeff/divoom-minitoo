@@ -79,6 +79,16 @@ class CliTest(unittest.TestCase):
         _, out = self.run_cli(["status"])
         self.assertIn("Codex error:   disk full", out)
 
+    def test_status_shows_silent_device(self):
+        from minitoo_dashboard import store
+        store.write_json_atomic(self.home / "state.json", {"updated_at": 1.0, "device_silent_since": None})
+        _, out = self.run_cli(["status"])
+        self.assertNotIn("not responding", out)
+        store.write_json_atomic(self.home / "state.json", {"updated_at": 1.0, "device_silent_since": 1.0})
+        _, out = self.run_cli(["status"])
+        self.assertIn("Device reply:  not responding (started", out)
+        self.assertIn("phone", out)
+
     def test_status_hides_limits_error_older_than_data(self):
         from minitoo_dashboard import store
         store.write_json_atomic(self.home / "state.json",

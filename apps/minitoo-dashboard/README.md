@@ -214,6 +214,14 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   device off, out of range or held by the phone, the daemon retries after
   30 s, 1, 2 and 5 minutes, and recovers by itself. `minitoo-dashboard logs`
   shows the details.
+- **"Device reply: not responding" in `status`, or a macOS notification that
+  MiniToo is not responding.** The Bluetooth link is open but the MiniToo
+  ignores it, typically because the Divoom phone app connected to it: closing the
+  app does not release it (the phone keeps the link for notifications).
+  Turn off Bluetooth on the phone and restart MiniToo. In testing, disconnecting
+  MiniToo in the phone's settings was not enough, and after a restart the phone
+  reconnects before the Mac does. The dashboard reconnects and returns by itself
+  within a few minutes (its retries back off up to 5 minutes).
 - **"No events left" although you have something today.** Nothing timed is left today, or Calendar access was not
   granted: System Settings > Privacy & Security > Calendars > `calendar-helper`.
   Reminders need their own permission: System Settings > Privacy & Security >

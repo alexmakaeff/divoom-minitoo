@@ -62,7 +62,7 @@ class FakeSources:
 
 class FakeDevice:
     def __init__(self):
-        self.calls, self.fail = [], False
+        self.calls, self.fail, self.replies = [], False, True
 
     def _record(self, *call):
         self.calls.append(call)
@@ -71,6 +71,10 @@ class FakeDevice:
 
     def send_rawfile(self, path, delay_ms):
         self._record("rawfile", Path(path).read_text().splitlines()[0])
+        return len(self.calls)
+
+    def replied_since(self, mark):
+        return self.replies
 
     def select_clock(self, clock_id, device_id):
         self._record("clock", clock_id, device_id)
@@ -450,6 +454,79 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(self.limit_frames, ["claude:five_hour", "claude:five_hour"])
         dash.tick(T + 100)
         self.assertEqual(len(self.limit_frames), 2)
+
+    def test_silent_device_detected_after_two_unanswered_sends(self):
+        dash = self.make()
+        self.device.replies = False
+        dash.tick(T)
+        dash.tick(T + 5)
+        self.assertEqual(len(self.sends()), 1)
+        dash.tick(T + 11)  # first send unanswered: probe again at once
+        self.assertEqual(len(self.sends()), 2)
+        self.assertEqual(self.notices, [])
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            dash.tick(T + 22)
+        self.assertEqual(len(self.notices), 1)
+        self.assertIn(("stop",), self.device.calls)  # reconnect fresh on the next send
+        self.assertEqual(store.read_json(self.home / "state.json")["device_silent_since"], T)
+        dash.tick(T + 40)  # backing off
+        self.assertEqual(len(self.sends()), 2)
+
+    def test_wake_drops_a_reply_check_from_before_sleep(self):
+        dash = self.make()
+        self.device.replies = False
+        dash.tick(T)
+        dash.tick(T + 11)  # one unanswered
+        dash.tick(T + 3600)  # asleep for an hour: start counting afresh
+        self.assertEqual(self.notices, [])
+        self.device.replies = True
+        dash.tick(T + 3601)
+        self.assertIsNone(dash.silent_since)
+
+    def test_frequent_sends_do_not_hide_silence(self):
+        dash = self.make()
+        self.device.replies = False
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            for i in range(25):
+                self.sources.version = i  # a new frame every tick
+                dash.tick(T + i)
+        self.assertEqual(len(self.notices), 1)
+
+    def test_silent_device_recovers_and_resends(self):
+        dash = self.make()
+        self.device.replies = False
+        dash.tick(T)
+        dash.tick(T + 11)
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            dash.tick(T + 22)
+        self.device.replies = True
+        dash.tick(T + 52)  # backoff over: send again
+        self.assertEqual(len(self.sends()), 3)
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            dash.tick(T + 53)
+        self.assertIn("responding again", logs.output[0])
+        self.assertIsNone(store.read_json(self.home / "state.json")["device_silent_since"])
+
+    def test_silence_notified_once_per_episode(self):
+        dash = self.make()
+        self.device.replies = False
+        dash.tick(T)
+        dash.tick(T + 11)
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            dash.tick(T + 22)
+            dash.tick(T + 52)
+            dash.tick(T + 63)  # still silent after the backoff send: no second notice
+        self.assertEqual(len(self.notices), 1)
+        self.device.replies = True
+        dash.tick(T + 200)
+        dash.tick(T + 201)
+        self.device.replies = False
+        self.sources.version = 1
+        dash.tick(T + 300)
+        dash.tick(T + 311)
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            dash.tick(T + 322)
+        self.assertEqual(len(self.notices), 2)
 
     def test_state_file(self):
         dash = self.make()

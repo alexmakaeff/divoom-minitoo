@@ -28,6 +28,8 @@ WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
 BACKOFF = (30, 60, 120, 300)
+SILENCE_WAIT = 10  # the MiniToo replies within a second or two; none after this: unanswered
+SILENT_AFTER = 2  # unanswered sends in a row before the device counts as silent
 LIMIT_ALERT_SHOW = 10  # seconds a limit alert stays on screen before the dashboard returns
 
 
@@ -84,6 +86,9 @@ class Dashboard:
         self.home = Path(home or paths.home())
         self.limit_alerts = LimitAlerts(self.home / "cache" / "limit-alerts.json")
         self.limit_alert_until = 0.0  # a limit alert is on screen until then
+        self.reply_check: Optional[Tuple[int, float]] = None  # (log mark, sent at) awaiting a reply
+        self.unanswered, self.unanswered_since = 0, 0.0
+        self.silent_since: Optional[float] = None  # the MiniToo stopped replying (phone holds it?)
         self.backoff = Backoff()
         self.device: Any = None
         self.device_mac: Optional[str] = None
@@ -131,6 +136,7 @@ class Dashboard:
             self.next_claude = self.claude_hold
             self.last_blob = None
             self.backoff.ok()
+            self.reply_check, self.unanswered = None, 0  # a send from before the sleep proves nothing
         device = self._device(cfg)
 
         if (self.home / "paused").exists():
@@ -145,10 +151,10 @@ class Dashboard:
         self.status = self.sources.status(now)
         if device is None:
             self.last_error = "no device configured (DEVICE_MAC in config)"
-        elif self.backoff.ready(now):
+        elif self._replies_ok(cfg, device, now) and self.backoff.ready(now):
             try:
                 if self.status == "alerting":
-                    self._show_alert(cfg, device)
+                    self._show_alert(cfg, device, now)
                 elif not self._show_limit_alert(cfg, device, now):
                     self._show_dashboard(cfg, device, now)
                 self.backoff.ok()
@@ -200,7 +206,7 @@ class Dashboard:
                         log.warning("direct Claude limits need Keychain access: %s", error)
                     if not self.keychain_lost:
                         self.keychain_lost = True
-                        self._notify_keychain(cfg)
+                        self._notify(cfg, "keychain_body")
                 else:
                     log.warning("direct Claude limits failed: %s", error)
                 self.limits_error, self.limits_error_at = error, now
@@ -220,13 +226,41 @@ class Dashboard:
                     self.codex_error = None
             self.next_codex = now + CODEX_EVERY
 
-    def _notify_keychain(self, cfg: config_mod.Config) -> None:
+    def _notify(self, cfg: config_mod.Config, body_key: str) -> None:
         try:
-            self.notify(i18n.t(cfg.lang, "keychain_title"), i18n.t(cfg.lang, "keychain_body"))
+            self.notify(i18n.t(cfg.lang, "notify_title"), i18n.t(cfg.lang, body_key))
         except Exception as exc:  # no osascript, notifications off: the log and `status` still say it
-            log.warning("could not show the Keychain notification: %s", exc)
+            log.warning("could not show the %s notification: %s", body_key, exc)
 
-    def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
+    def _replies_ok(self, cfg: config_mod.Config, device: Any, now: float) -> bool:
+        """Check that the last send got a reply; a silent device backs off like a failing one."""
+        if self.reply_check is None:
+            return True
+        mark, sent_at = self.reply_check
+        if device.replied_since(mark):
+            self.reply_check, self.unanswered = None, 0
+            if self.silent_since is not None:
+                log.info("device responding again")
+                self.silent_since = None
+            return True
+        if now - sent_at < SILENCE_WAIT:
+            return True
+        self.reply_check, self.last_blob, self.alert_shown = None, None, False  # resend: it is a probe
+        if self.unanswered == 0:
+            self.unanswered_since = sent_at
+        self.unanswered += 1
+        if self.unanswered < SILENT_AFTER:
+            return True
+        if self.silent_since is None:
+            self.silent_since = self.unanswered_since
+            log.warning("device not responding (the phone app may hold the connection)")
+            self._notify(cfg, "silent_body")
+        delay = self.backoff.fail(now)
+        device.stop()  # the next send reconnects from scratch
+        self.last_error = f"device not responding (retry in {delay}s)"
+        return False
+
+    def _show_alert(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.limit_alert_until = 0.0  # a question replaces a limit alert; the dashboard follows it
         if self.alert_shown:
             return
@@ -234,7 +268,7 @@ class Dashboard:
         if target:
             device.select_clock(*target)
         else:
-            self._send(cfg, device, self.alert_blob(cfg))
+            self._send(cfg, device, self.alert_blob(cfg), now)
         self.alert_shown, self.last_blob = True, None
 
     def _show_limit_alert(self, cfg: config_mod.Config, device: Any, now: float) -> bool:
@@ -248,7 +282,7 @@ class Dashboard:
             return False
         crossing = crossings[0]  # the rest follow, one per LIMIT_ALERT_SHOW
         started = self.monotonic()
-        self._send(cfg, device, self.limit_alert_blob(crossing, cfg, now))
+        self._send(cfg, device, self.limit_alert_blob(crossing, cfg, now), now)
         self.limit_alerts.mark(crossing, now)
         log.info("limit alert: %s at %.0f%%", crossing.key, crossing.pct)
         shown_at = now + (self.monotonic() - started)  # the transfer itself takes a second or two
@@ -260,13 +294,15 @@ class Dashboard:
         blob = self.dashboard_blob(self.sources.model(cfg, self.status, now), cfg)
         if blob == self.last_blob and now - self.last_blob_sent < RESEND_EVERY:
             return
-        self._send(cfg, device, blob)
+        self._send(cfg, device, blob, now)
         self.last_blob, self.last_blob_sent = blob, now
 
-    def _send(self, cfg: config_mod.Config, device: Any, blob: bytes) -> None:
+    def _send(self, cfg: config_mod.Config, device: Any, blob: bytes, now: float) -> None:
         path = self.home / "cache" / "frame.raw"
         encode.write_rawfile(blob, path)
-        device.send_rawfile(path, cfg.send_delay_ms)
+        mark = device.send_rawfile(path, cfg.send_delay_ms)
+        if self.reply_check is None:  # keep an older pending check: frequent sends must not hide silence
+            self.reply_check = (mark, now)
         self.last_sent_at, self.last_error = time.time(), None
 
     def _write_state(self, now: float) -> None:
@@ -277,7 +313,7 @@ class Dashboard:
                  "retry_at": self.backoff.until or None, "limits_error": self.limits_error,
                  "limits_error_at": self.limits_error_at,
                  "limits_checked_at": self.limits_checked_at,
-                 "codex_error": self.codex_error}
+                 "codex_error": self.codex_error, "device_silent_since": self.silent_since}
         if state == self._last_state and now - self._last_state_write < HEARTBEAT:
             return
         self._last_state, self._last_state_write = state, now

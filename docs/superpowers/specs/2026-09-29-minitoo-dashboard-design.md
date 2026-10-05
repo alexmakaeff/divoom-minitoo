@@ -242,6 +242,33 @@ showed only the app icon, never the text, both over the dashboard and over a
 built-in clock face, ASCII or Cyrillic. Our own frame also allows Cyrillic and
 the service colours.
 
+### Amendment (2026-10-05): silent device
+
+`dv` acknowledges at the FIFO, so a MiniToo that ignores the Mac looked healthy:
+after the owner used the Divoom phone app (the phone kept the link even with the
+app closed), the dashboard kept "sending" for 30 min to a clock face; a fresh
+RFCOMM connection opened but got no reply either, and only a device restart
+helped.
+
+- The MiniToo answers each upload (`04 8b 55`) and broadcasts about once a second
+  (`04 f7 55`). `Device.send_rawfile` returns the size of `/tmp/divoom-send.log`
+  before the send; any later `rx[` line counts as a reply (a shorter log was
+  truncated by `dv start`: read from the start).
+- No reply 10 s after a send: unanswered, and the frame is sent again at once as a
+  probe. Two unanswered in a row: silent. A pending check is not reset by newer
+  sends, so frequent frames cannot hide silence.
+- Silent: one warning in the log, one macOS notification per episode, `dv stop`
+  so the next send reconnects, and the normal device backoff (30 s … 5 min).
+  `state.json` has `device_silent_since`; `status` prints a "Device reply" hint.
+  The first reply logs "device responding again" and the dashboard is resent.
+- Only frame uploads are checked; the Clauddy face switch is not.
+- Verified 2026-10-05 with the phone app connected: silent detected ~22 s after
+  `resume`, notification shown. Disconnecting MiniToo in the phone's settings did
+  not bring replies back; after a MiniToo restart the phone reconnected first;
+  with the phone's Bluetooth off the Mac got the device ("device responding
+  again" on the next backoff send). Hints say: phone Bluetooth off + restart.
+  Whether the restart is needed once the phone's Bluetooth is off is untested.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

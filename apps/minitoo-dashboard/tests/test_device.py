@@ -31,7 +31,34 @@ class DeviceTest(unittest.TestCase):
         self.tmp.cleanup()
 
     def dev(self, run):
-        return device.Device("AA:BB:CC:DD:EE:FF", dv="/dv", fifo=self.fifo, run=run)
+        return device.Device("AA:BB:CC:DD:EE:FF", dv="/dv", fifo=self.fifo, run=run,
+                             log=Path(self.tmp.name) / "divoom-send.log")
+
+    def test_send_returns_log_mark_and_reply_is_seen_after_it(self):
+        log = Path(self.tmp.name) / "divoom-send.log"
+        log.write_text("delegate: rx[11]: old reply\nsendFrames: done\n")
+        os.mkfifo(self.fifo)
+        dev = self.dev(FakeRun())
+        mark = dev.send_rawfile(Path("/tmp/frame.raw"), 20)
+        self.assertEqual(mark, log.stat().st_size)
+        self.assertFalse(dev.replied_since(mark))  # the old reply does not count
+        with open(log, "a") as fh:
+            fh.write("tx[0]: 01 02\n")
+        self.assertFalse(dev.replied_since(mark))
+        with open(log, "a") as fh:
+            fh.write("delegate: rx[11]: 01 07 00 04 8b 55 00 01 ec 00 02\n")
+        self.assertTrue(dev.replied_since(mark))
+
+    def test_restarted_log_is_read_from_the_start(self):
+        log = Path(self.tmp.name) / "divoom-send.log"
+        dev = self.dev(FakeRun())
+        log.write_text("delegate: rx[17]: 01 0d\n")
+        self.assertTrue(dev.replied_since(10_000))  # `dv start` truncated the log
+
+    def test_missing_log_means_no_reply(self):
+        dev = self.dev(FakeRun())
+        self.assertEqual(dev.log_mark(), 0)
+        self.assertFalse(dev.replied_since(0))
 
     def test_send_when_daemon_running(self):
         os.mkfifo(self.fifo)

@@ -266,8 +266,9 @@ helped.
   `resume`, notification shown. Disconnecting MiniToo in the phone's settings did
   not bring replies back; after a MiniToo restart the phone reconnected first;
   with the phone's Bluetooth off the Mac got the device ("device responding
-  again" on the next backoff send). Hints say: phone Bluetooth off + restart.
-  Whether the restart is needed once the phone's Bluetooth is off is untested.
+  again" on the next backoff send). Owner check afterwards: with the phone's
+  Bluetooth off, `pause` + `resume` was enough, no restart needed. Hints say:
+  turn off the phone's Bluetooth; restart MiniToo only if it stays silent.
 
 ## 3. Architecture
 

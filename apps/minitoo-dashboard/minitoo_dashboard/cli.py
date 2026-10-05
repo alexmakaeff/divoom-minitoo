@@ -85,7 +85,8 @@ def cmd_status(args) -> int:
     print(f"Device:        {cfg.device_mac or 'not configured'}")
     if state.get("device_silent_since"):
         print(f"Device reply:  not responding (started {_ago(state['device_silent_since'], now)})"
-              "  → probably the phone holds it: turn off Bluetooth on the phone and restart MiniToo")
+              "  → probably the phone holds it: turn off Bluetooth on the phone (restart MiniToo"
+              " only if it stays silent)")
     print(f"Claude status: {state.get('status', '?')}   screen: {state.get('shown', '?')}")
     print(f"Last sent:     {_ago(state.get('last_sent_at'), now)}")
     if state.get("last_error"):

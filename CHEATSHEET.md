@@ -51,6 +51,18 @@ MiniToo не нужно. Дашборд вернётся сам в течени�
 `minitoo-dashboard pause` и `minitoo-dashboard resume`. Перезагрузите MiniToo, только
 если он так и не ответил.
 
+## Если MiniToo перезагружается сам
+
+Иногда MiniToo перезагружается, пока принимает обычный кадр. Дашборд пишет об этом в лог,
+а экран возвращается сам в течение 5 минут. Сколько раз это было:
+
+```bash
+grep -h "device restarted" ~/.minitoo-dashboard/dashboard.log*
+```
+
+Строка «device Bluetooth link closed» — не перезагрузка: MiniToo выключили, унесли
+или Mac уснул.
+
 ## Настройки
 
 | Что нужно | Команда |

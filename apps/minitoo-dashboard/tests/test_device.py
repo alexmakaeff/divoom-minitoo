@@ -60,6 +60,41 @@ class DeviceTest(unittest.TestCase):
         self.assertEqual(dev.log_mark(), 0)
         self.assertFalse(dev.replied_since(0))
 
+    def test_closures_tell_a_restart_from_a_dropped_link(self):
+        log = Path(self.tmp.name) / "divoom-send.log"
+        log.write_text("delegate: channel closed\n")  # from before the dashboard looked
+        dev = self.dev(FakeRun())
+        self.assertEqual(dev.closures(), [])
+        upload = "sendFrames: count=35 delay=20ms\ntx[0]: 01\nsendFrames: done elapsed=763ms\n"
+        with open(log, "a") as fh:
+            fh.write(upload + "delegate: rx[11]: 01 07 00 04 8b 55 00 01 ec 00 02\n"
+                     "delegate: channel closed\ndelegate: openComplete status=0x0\n")
+        self.assertEqual(dev.closures(), [True])  # acked, never confirmed, link gone: restarted
+        with open(log, "a") as fh:
+            fh.write(upload + "delegate: rx[30]: 01 09 00 04 bd 55 13 01 05 00 38 01 02 01 0d\n"
+                     "delegate: channel closed\n")
+        self.assertEqual(dev.closures(), [False])  # confirmed first: switched off or out of range
+        self.assertEqual(dev.closures(), [])
+
+    def test_closures_wait_for_a_whole_line_and_follow_a_truncated_log(self):
+        log = Path(self.tmp.name) / "divoom-send.log"
+        log.write_text("x" * 500 + "\n")
+        dev = self.dev(FakeRun())
+        dev.closures()
+        with open(log, "a") as fh:
+            fh.write("sendFrames: count=35\ndelegate: channel clo")
+        self.assertEqual(dev.closures(), [])
+        with open(log, "a") as fh:
+            fh.write("sed\n")
+        self.assertEqual(dev.closures(), [True])
+        log.write_text("delegate: channel closed\n")  # `dv start` began a new log
+        self.assertEqual(dev.closures(), [False])
+
+    def test_closures_without_a_log(self):
+        dev = self.dev(FakeRun())
+        self.assertEqual(dev.closures(), [])
+        self.assertEqual(dev.closures(), [])
+
     def test_send_when_daemon_running(self):
         os.mkfifo(self.fifo)
         run = FakeRun()

@@ -224,6 +224,11 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   reconnects and returns by itself within a few minutes (its retries back off up
   to 5 minutes); `minitoo-dashboard pause` then `resume` retries at once. Restart
   MiniToo only if it stays silent.
+- **MiniToo restarts by itself.** It sometimes restarts while handling an
+  ordinary frame (cause unknown, firmware). `minitoo-dashboard logs` then shows
+  "device restarted while handling a frame"; switching it off or walking away
+  shows "device Bluetooth link closed" instead. The screen comes back by
+  itself within 5 minutes.
 - **"No events left" although you have something today.** Nothing timed is left today, or Calendar access was not
   granted: System Settings > Privacy & Security > Calendars > `calendar-helper`.
   Reminders need their own permission: System Settings > Privacy & Security >

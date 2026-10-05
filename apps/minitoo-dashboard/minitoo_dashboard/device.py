@@ -32,6 +32,8 @@ class Device:
         self.fifo = Path(fifo)
         self.run = run
         self.log = Path(log)
+        self._closures_pos: Optional[int] = None  # how far closures() has read the dv log
+        self._uploading = False  # an upload started and the MiniToo has not confirmed it yet
 
     def _call(self, args: List[str], timeout: float) -> None:
         try:
@@ -88,6 +90,37 @@ class Device:
                 return b"rx[" in fh.read()
         except OSError:
             return False
+
+    def closures(self) -> List[bool]:
+        """Bluetooth closures logged since the last call, each True if it cut an unconfirmed upload.
+
+        A MiniToo that restarts while handling a frame acks the transfer (`8b 55`), never confirms
+        it (`bd 55 13`) and drops the channel. The first call only finds the end of the log.
+        """
+        try:
+            with open(self.log, "rb") as fh:
+                size = fh.seek(0, 2)
+                if self._closures_pos is None:
+                    self._closures_pos = size
+                    return []
+                if size < self._closures_pos:  # `dv start` truncated the log: a new connection
+                    self._closures_pos, self._uploading = 0, False
+                fh.seek(self._closures_pos)
+                data = fh.read(size - self._closures_pos)
+        except OSError:
+            return []
+        data = data[:data.rfind(b"\n") + 1]  # a half-written line waits for the next call
+        self._closures_pos += len(data)
+        found = []
+        for line in data.splitlines():
+            if line.startswith(b"sendFrames: count"):
+                self._uploading = True
+            elif b"bd 55 13" in line:
+                self._uploading = False
+            elif b"channel closed" in line:
+                found.append(self._uploading)
+                self._uploading = False
+        return found
 
     def select_clock(self, clock_id: int, device_id: int) -> None:
         self.ensure_daemon()

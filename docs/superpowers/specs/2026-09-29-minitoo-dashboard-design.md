@@ -270,6 +270,24 @@ helped.
   Bluetooth off, `pause` + `resume` was enough, no restart needed. Hints say:
   turn off the phone's Bluetooth; restart MiniToo only if it stays silent.
 
+### Amendment (2026-10-05): device restarts are logged
+
+The owner saw the MiniToo restart by itself. `/tmp/divoom-send.log` (dv start 16:37) showed
+2 restarts in 78 ordinary dashboard uploads (~8.6 KB, 35 chunks, same sizes as uploads that
+worked): the whole frame went out, the device acked it (`04 8b 55`), never confirmed it
+(`04 bd 55 13`), and the channel closed; dv reopened it at once. Keepalives (`04 f7 55`)
+appeared only after the first restart. Cause unknown (firmware); not linked to the changes
+of 2026-10-05, which do not touch the upload path.
+
+- `Device.closures()` reads the dv log incrementally (from its end at the first call, from
+  the start after `dv start` truncated it, whole lines only) and returns one flag per
+  `channel closed`: True if it cut an upload with no `bd 55 13` yet.
+- The daemon logs a True closure within 60 s of its own last upload as a WARNING "device
+  restarted while handling a frame"; any other closure (device switched off, out of range,
+  Mac asleep: the owner's daily routine) is an INFO "device Bluetooth link closed".
+- Logging only: the existing 5-minute resend still restores the screen. Next step, once the
+  log shows how often it happens: a larger `SEND_DELAY_MS` or fewer uploads.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

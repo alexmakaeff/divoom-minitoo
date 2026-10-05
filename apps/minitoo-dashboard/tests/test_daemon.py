@@ -63,6 +63,7 @@ class FakeSources:
 class FakeDevice:
     def __init__(self):
         self.calls, self.fail, self.replies = [], False, True
+        self.closed = []  # what closures() reports next
 
     def _record(self, *call):
         self.calls.append(call)
@@ -75,6 +76,10 @@ class FakeDevice:
 
     def replied_since(self, mark):
         return self.replies
+
+    def closures(self):
+        found, self.closed = self.closed, []
+        return found
 
     def select_clock(self, clock_id, device_id):
         self._record("clock", clock_id, device_id)
@@ -454,6 +459,20 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(self.limit_frames, ["claude:five_hour", "claude:five_hour"])
         dash.tick(T + 100)
         self.assertEqual(len(self.limit_frames), 2)
+
+    def test_restart_mid_upload_is_logged_apart_from_a_dropped_link(self):
+        dash = self.make()
+        dash.tick(T)
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            self.device.closed = [True]
+            dash.tick(T + 1)
+            self.device.closed = [False]
+            dash.tick(T + 2)
+            self.device.closed = [True]  # an unconfirmed upload long ago: not this frame's fault
+            dash.tick(T + 200)
+        records = [r for r in logs.records if "device" in r.getMessage()]  # not the clock-jump line
+        self.assertEqual([r.levelname for r in records], ["WARNING", "INFO", "INFO"])
+        self.assertIn("restarted", records[0].getMessage())
 
     def test_silent_device_detected_after_two_unanswered_sends(self):
         dash = self.make()

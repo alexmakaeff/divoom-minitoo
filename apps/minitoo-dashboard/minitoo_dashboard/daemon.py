@@ -30,6 +30,7 @@ RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/
 BACKOFF = (30, 60, 120, 300)
 SILENCE_WAIT = 10  # the MiniToo replies within a second or two; none after this: unanswered
 SILENT_AFTER = 2  # unanswered sends in a row before the device counts as silent
+RESTART_WINDOW = 60  # a closure that cuts an unconfirmed upload this soon after our send: the MiniToo restarted
 LIMIT_ALERT_SHOW = 10  # seconds a limit alert stays on screen before the dashboard returns
 
 
@@ -109,6 +110,7 @@ class Dashboard:
         self.codex_error_logged = 0.0
         self.weather_key: Any = None
         self.last_sent_at: Optional[float] = None
+        self.sent_tick: Optional[float] = None  # tick time of our last upload
         self.last_error: Optional[str] = None
         self._last_state: Any = None
         self._last_state_write = 0.0
@@ -146,6 +148,8 @@ class Dashboard:
             self._write_state(now)
             return
         self.paused = False
+        if device is not None:
+            self._watch_closures(device, now)
 
         self._refresh(cfg, now)
         self.status = self.sources.status(now)
@@ -260,6 +264,14 @@ class Dashboard:
         self.last_error = f"device not responding (retry in {delay}s)"
         return False
 
+    def _watch_closures(self, device: Any, now: float) -> None:
+        """Log every Bluetooth closure dv saw; a closure mid-upload means the MiniToo restarted."""
+        for during_upload in device.closures():
+            if during_upload and self.sent_tick is not None and now - self.sent_tick <= RESTART_WINDOW:
+                log.warning("device restarted while handling a frame (Bluetooth dropped before it was shown)")
+            else:
+                log.info("device Bluetooth link closed (switched off, out of range or the Mac slept)")
+
     def _show_alert(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.limit_alert_until = 0.0  # a question replaces a limit alert; the dashboard follows it
         if self.alert_shown:
@@ -303,7 +315,7 @@ class Dashboard:
         mark = device.send_rawfile(path, cfg.send_delay_ms)
         if self.reply_check is None:  # keep an older pending check: frequent sends must not hide silence
             self.reply_check = (mark, now)
-        self.last_sent_at, self.last_error = time.time(), None
+        self.last_sent_at, self.last_error, self.sent_tick = time.time(), None, now
 
     def _write_state(self, now: float) -> None:
         shown = ("paused" if self.paused else "alert" if self.alert_shown else

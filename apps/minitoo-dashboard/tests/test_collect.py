@@ -105,6 +105,13 @@ class CollectTest(unittest.TestCase):
         self.assertFalse(m.codex.has_data)
         self.assertFalse(m.codex_working)
 
+    def test_limit_caches(self):
+        store.write_json_atomic(self.cache / "claude.json", {"captured_at": NOW})
+        store.write_json_atomic(self.cache / "codex.json", {"captured_at": NOW - 1})
+        self.assertEqual(self.sources().limit_caches(CFG), {"claude": {"captured_at": NOW}})
+        on = Config(codex="on")
+        self.assertEqual(self.sources().limit_caches(on)["codex"], {"captured_at": NOW - 1})
+
     def test_status_reads_sessions(self):
         (self.sessions / "s1").write_text(f"alerting {NOW}\n")
         self.assertEqual(self.sources().status(NOW), "alerting")

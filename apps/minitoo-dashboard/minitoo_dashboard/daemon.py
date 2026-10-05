@@ -10,6 +10,7 @@ from typing import Any, Callable, Optional, Tuple
 from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
+from .limit_alerts import Crossing, LimitAlerts
 from .sources.claude import KeychainAccessError, RefusedError
 
 log = logging.getLogger("minitoo_dashboard")
@@ -27,6 +28,7 @@ WAKE_JUMP = 30
 HEARTBEAT = 60
 RESEND_EVERY = 300  # dv acks at the FIFO, not the device: resend so a rebooted/reclaimed MiniToo recovers
 BACKOFF = (30, 60, 120, 300)
+LIMIT_ALERT_SHOW = 10  # seconds a limit alert stays on screen before the dashboard returns
 
 
 def macos_notify(title: str, body: str) -> None:
@@ -61,19 +63,27 @@ def default_alert_blob(cfg: config_mod.Config) -> bytes:
     return encode.build_blob([render.render_alert(cfg.lang)], 1000)
 
 
+def default_limit_alert_blob(crossing: Crossing, cfg: config_mod.Config, now: float) -> bytes:
+    return encode.build_blob([render.render_limit_alert(crossing, cfg.lang, now)], 1000)
+
+
 class Dashboard:
     def __init__(self, *, sources: Any, device_for: Callable[[str], Any],
                  load_config: Callable[[], config_mod.Config] = config_mod.load_config,
                  clauddy_alert: Callable[[], Optional[Tuple[int, int]]] = config_mod.clauddy_alert,
                  dashboard_blob: Callable[..., bytes] = default_dashboard_blob,
                  alert_blob: Callable[..., bytes] = default_alert_blob,
+                 limit_alert_blob: Callable[..., bytes] = default_limit_alert_blob,
                  home: Optional[Path] = None,
                  monotonic: Callable[[], float] = time.monotonic,
                  notify: Callable[[str, str], None] = macos_notify):
         self.monotonic, self.notify = monotonic, notify
         self.sources, self.device_for, self.load_config = sources, device_for, load_config
         self.clauddy_alert, self.dashboard_blob, self.alert_blob = clauddy_alert, dashboard_blob, alert_blob
+        self.limit_alert_blob = limit_alert_blob
         self.home = Path(home or paths.home())
+        self.limit_alerts = LimitAlerts(self.home / "cache" / "limit-alerts.json")
+        self.limit_alert_until = 0.0  # a limit alert is on screen until then
         self.backoff = Backoff()
         self.device: Any = None
         self.device_mac: Optional[str] = None
@@ -139,7 +149,7 @@ class Dashboard:
             try:
                 if self.status == "alerting":
                     self._show_alert(cfg, device)
-                else:
+                elif not self._show_limit_alert(cfg, device, now):
                     self._show_dashboard(cfg, device, now)
                 self.backoff.ok()
             except DeviceError as exc:
@@ -217,6 +227,7 @@ class Dashboard:
             log.warning("could not show the Keychain notification: %s", exc)
 
     def _show_alert(self, cfg: config_mod.Config, device: Any) -> None:
+        self.limit_alert_until = 0.0  # a question replaces a limit alert; the dashboard follows it
         if self.alert_shown:
             return
         target = self.clauddy_alert()
@@ -225,6 +236,24 @@ class Dashboard:
         else:
             self._send(cfg, device, self.alert_blob(cfg))
         self.alert_shown, self.last_blob = True, None
+
+    def _show_limit_alert(self, cfg: config_mod.Config, device: Any, now: float) -> bool:
+        """True while a limit alert is (or has just been put) on screen."""
+        if now < self.limit_alert_until:
+            return True
+        if cfg.limit_alert is None:
+            return False
+        crossings = self.limit_alerts.due(self.sources.limit_caches(cfg), cfg.limit_alert, now)
+        if not crossings:
+            return False
+        crossing = crossings[0]  # the rest follow, one per LIMIT_ALERT_SHOW
+        started = self.monotonic()
+        self._send(cfg, device, self.limit_alert_blob(crossing, cfg, now))
+        self.limit_alerts.mark(crossing, now)
+        log.info("limit alert: %s at %.0f%%", crossing.key, crossing.pct)
+        shown_at = now + (self.monotonic() - started)  # the transfer itself takes a second or two
+        self.limit_alert_until, self.alert_shown, self.last_blob = shown_at + LIMIT_ALERT_SHOW, False, None
+        return True
 
     def _show_dashboard(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.alert_shown = False
@@ -241,8 +270,8 @@ class Dashboard:
         self.last_sent_at, self.last_error = time.time(), None
 
     def _write_state(self, now: float) -> None:
-        shown = "paused" if self.paused else ("alert" if self.alert_shown else
-                                              ("dashboard" if self.last_blob else "none"))
+        shown = ("paused" if self.paused else "alert" if self.alert_shown else
+                 "limit_alert" if now < self.limit_alert_until else "dashboard" if self.last_blob else "none")
         state = {"status": self.status, "shown": shown, "paused": self.paused,
                  "last_sent_at": self.last_sent_at, "last_error": self.last_error,
                  "retry_at": self.backoff.until or None, "limits_error": self.limits_error,

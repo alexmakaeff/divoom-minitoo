@@ -905,8 +905,21 @@ Empirical test: four distinct icon+text pairs (WhatsApp+"WORKING", Facebook+"FOC
 - **Not suitable** for persistent status display (the 1-3 s timeout is baked into the firmware; no opcode found to extend it).
 - For persistent status, combine with `0x8B` live animation (§8i) — use animation for the steady-state view, use `0x50` flashes for event moments.
 
+### Retest 2026-10-05: icon only, no text
+
+The same frames (`50 12 0d "Claude 5h 90%"`, device ACK `04 50 55`) now show
+**only the icon**, no text — over a custom page and over a built-in clock face,
+ASCII and Cyrillic alike. Either a firmware update dropped the text or a
+device-side setting (e.g. "show message content" in the Divoom app) hides it;
+not checked yet. Also seen: `cmd_code` `0x05` (not in the enum table) shows a
+**phone icon with "Call"**, and it appeared to stay on screen longer than the
+1–3 s of other icons (not measured). The dashboard uses its own full-screen
+frame for limit alerts instead (spec amendment 2026-10-05).
+
 ### Open follow-ups
 
+- [ ] Why does the text no longer render (firmware vs. a Divoom app setting)?
+- [ ] Slot `0x05` "Call": how long does it stay, and is there a way to dismiss it?
 - [ ] Can any field or separate opcode extend the notification duration?
 - [ ] Can `cmd_code` be made to use a custom icon (via the separate `0x3C SPP_SET_ANCS_NOTICE_PIC` pixel-upload flow) — tested: **crashes the device** (see §8k below).
 - [ ] What is the max text length that renders cleanly (firmware caps at 128 bytes per the app code, but the display width is probably the practical limit).

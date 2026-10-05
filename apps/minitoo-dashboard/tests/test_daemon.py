@@ -51,6 +51,11 @@ class FakeSources:
         if self.codex_fails:
             raise OSError(self.codex_fails)
 
+    caches = {}
+
+    def limit_caches(self, cfg):
+        return self.caches
+
     def model(self, cfg, status, now):
         return (status, self.version)
 
@@ -79,7 +84,7 @@ class DashboardTest(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.home = Path(self.tmp.name)
         self.sources, self.device = FakeSources(), FakeDevice()
-        self.notices = []
+        self.notices, self.limit_frames = [], []
 
     def tearDown(self):
         self.tmp.cleanup()
@@ -89,6 +94,7 @@ class DashboardTest(unittest.TestCase):
                          clauddy_alert=lambda: alert,
                          dashboard_blob=lambda model, c: repr(model).encode(),
                          alert_blob=lambda c: b"ALERT", home=self.home,
+                         limit_alert_blob=lambda crossing, c, now: self.limit_frames.append(crossing.key) or b"LIMIT",
                          monotonic=monotonic or (lambda: 0.0),
                          notify=lambda title, body: self.notices.append((title, body)))
 
@@ -336,6 +342,114 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T)
         self.assertEqual(self.device.calls, [])
         self.assertIn("DEVICE_MAC", store.read_json(self.home / "state.json")["last_error"])
+
+    def over(self, five=95.0, week=None, agent="claude"):
+        record = {"captured_at": T, "five_hour": {"used_percentage": five, "resets_at": T + 3600}}
+        if week is not None:
+            record["seven_day"] = {"used_percentage": week, "resets_at": T + 86400}
+        self.sources.caches = {agent: record}
+
+    def test_limit_alert_shown_once_then_dashboard_returns(self):
+        dash = self.make()
+        dash.tick(T)
+        self.over()
+        dash.tick(T + 1)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+        self.assertEqual(len(self.sends()), 2)
+        self.assertEqual(store.read_json(self.home / "state.json")["shown"], "limit_alert")
+        dash.tick(T + 5)  # still showing the alert: no dashboard frame on top of it
+        self.assertEqual(len(self.sends()), 2)
+        dash.tick(T + 12)  # same model as before, but the screen shows the alert: resend
+        self.assertEqual(len(self.sends()), 3)
+        dash.tick(T + 600)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_alert_time_counts_from_after_the_send(self):
+        clock = [0.0]
+        send = self.device.send_rawfile
+
+        def slow_send(path, delay_ms):
+            clock[0] += 3.0  # a slow Bluetooth transfer
+            send(path, delay_ms)
+
+        self.device.send_rawfile = slow_send
+        self.over()
+        dash = self.make(monotonic=lambda: clock[0])
+        dash.tick(T)
+        dash.tick(T + 12)
+        self.assertEqual(len(self.sends()), 1)
+        dash.tick(T + 14)
+        self.assertEqual(len(self.sends()), 2)
+
+    def test_limit_alerts_one_after_another(self):
+        self.over(five=95.0, week=91.0)
+        dash = self.make()
+        dash.tick(T)
+        dash.tick(T + 5)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+        dash.tick(T + 11)
+        self.assertEqual(self.limit_frames, ["claude:five_hour", "claude:seven_day"])
+
+    def test_limit_alert_not_repeated_after_restart(self):
+        self.over()
+        self.make().tick(T)
+        self.make().tick(T + 60)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_alert_off(self):
+        self.over()
+        self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", limit_alert=None)).tick(T)
+        self.assertEqual(self.limit_frames, [])
+
+    def test_limit_alert_uses_configured_threshold(self):
+        self.over(five=85.0)
+        self.make().tick(T)
+        self.assertEqual(self.limit_frames, [])
+        self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", limit_alert=80)).tick(T + 1)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_alert_waits_for_question_alert(self):
+        dash = self.make()
+        self.sources.state = "alerting"
+        self.over()
+        dash.tick(T)
+        self.assertEqual((self.limit_frames, self.sends()), ([], [("clock", 988, 1)]))
+        self.sources.state = "chilling"
+        dash.tick(T + 1)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_question_alert_interrupts_limit_alert(self):
+        self.over()
+        dash = self.make()
+        dash.tick(T)
+        self.sources.state = "alerting"
+        dash.tick(T + 2)
+        self.assertEqual(self.sends()[-1], ("clock", 988, 1))
+        self.sources.state = "chilling"
+        dash.tick(T + 3)  # back to the dashboard at once, not the rest of the limit alert
+        self.assertEqual(len(self.sends()), 3)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_alert_waits_while_paused(self):
+        (self.home / "paused").touch()
+        self.over()
+        dash = self.make()
+        dash.tick(T)
+        self.assertEqual(self.limit_frames, [])
+        (self.home / "paused").unlink()
+        dash.tick(T + 1)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_alert_retried_after_device_error(self):
+        self.over()
+        dash = self.make()
+        self.device.fail = True
+        dash.tick(T)
+        self.device.fail = False
+        dash.tick(T + 31)
+        self.assertEqual(self.limit_frames, ["claude:five_hour", "claude:five_hour"])
+        dash.tick(T + 100)
+        self.assertEqual(len(self.limit_frames), 2)
 
     def test_state_file(self):
         dash = self.make()

@@ -17,6 +17,10 @@
 | Посмотреть экран без устройства (PNG в `~/.minitoo-dashboard/preview`) | `minitoo-dashboard preview` |
 | То же на примерных данных | `minitoo-dashboard preview --demo` |
 
+Когда лимит Claude или Codex (5 часов или неделя) доходит до 90%, на экране на 10
+секунд появляется кадр «Claude / Лимит 5ч / 92% / сброс 1ч20м». Каждое окно
+предупреждает один раз, до своего сброса.
+
 ## Если пришло уведомление «Нет доступа к Keychain»
 
 ```bash
@@ -48,6 +52,7 @@ minitoo-dashboard refresh-limits
 | Градусы | `minitoo-dashboard init --temp-unit celsius` (или `fahrenheit`) |
 | Откуда брать лимиты Claude | `minitoo-dashboard init --claude-limits direct` (или `statusline`) |
 | Показывать лимиты Codex | `minitoo-dashboard init --codex on` (или `off`) |
+| Порог предупреждения о лимите (по умолчанию 90%) | в файле настроек `LIMIT_ALERT=80` (или `off`) |
 | Открыть файл настроек в TextEdit | `open -e ~/.minitoo-dashboard/config` |
 
 Дашборд перечитывает настройки каждую секунду, перезапуск не нужен.

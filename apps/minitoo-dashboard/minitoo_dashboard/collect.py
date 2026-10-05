@@ -51,6 +51,12 @@ class Sources:
         if codex.needs_write(old, new, now):
             store.write_json_atomic(path, new)
 
+    def limit_caches(self, cfg: Config) -> dict:
+        caches = {"claude": store.read_json(self.cache_dir / "claude.json")}
+        if cfg.codex == "on":
+            caches["codex"] = store.read_json(self.cache_dir / "codex.json")
+        return caches
+
     def model(self, cfg: Config, status: str, now: float) -> render.DashboardModel:
         wcache = store.read_json(self.cache_dir / "weather.json")
         if isinstance(wcache, dict) and (wcache.get("lat"), wcache.get("lon")) != (cfg.city_lat, cfg.city_lon):

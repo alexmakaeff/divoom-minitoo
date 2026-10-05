@@ -219,6 +219,29 @@ short; success resets it. `minitoo-dashboard refresh-limits` drops a
 `refresh-limits` file the daemon consumes to check at once, and reports the
 result from `state.json` (`limits_checked_at`).
 
+### Amendment (2026-10-05): limit alerts
+
+When a Claude or Codex (with `CODEX=on`) 5-hour or weekly window reaches
+`LIMIT_ALERT` % used (default 90, `off` disables), the daemon shows a
+full-screen frame in the service colour (agent name, window, used %, time to
+reset) for 10 s, counted from the end of the transfer, then resends the
+dashboard. Checked every tick from the cached `claude.json` / `codex.json`, so
+the status-line source works too.
+
+- A window is announced once: `cache/limit-alerts.json` stores its `resets_at`,
+  and it is not announced again until that time has passed (a `resets_at` that
+  drifts by seconds is still the same window). A daemon restart does not repeat.
+- Several crossings at once are shown one after another, Claude first.
+- Priority: question alert > limit alert > dashboard. A question cancels the rest
+  of a limit alert. Paused: nothing is shown; still-due windows follow `resume`.
+  A device error leaves the window unannounced, retried with the normal backoff.
+- `state.json` reports `shown: limit_alert`; `preview` writes `limit-alert.png`.
+
+Why not the firmware notification (`0x50`, FINDINGS §8j): on 2026-10-05 it
+showed only the app icon, never the text, both over the dashboard and over a
+built-in clock face, ASCII or Cyrillic. Our own frame also allows Cyrillic and
+the service colours.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

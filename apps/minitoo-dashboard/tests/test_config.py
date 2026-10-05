@@ -44,6 +44,16 @@ class ParseConfigTest(unittest.TestCase):
         self.assertEqual(config.parse_config("CODEX=yes").codex, "off")
         self.assertIn("CODEX=on", config.format_config(config.Config(codex="on")))
 
+    def test_limit_alert_threshold(self):
+        self.assertEqual(config.Config().limit_alert, 90)
+        self.assertEqual(config.parse_config("LIMIT_ALERT=80").limit_alert, 80)
+        self.assertIsNone(config.parse_config("LIMIT_ALERT=off").limit_alert)
+        self.assertEqual(config.parse_config("LIMIT_ALERT=0").limit_alert, 1)
+        self.assertEqual(config.parse_config("LIMIT_ALERT=150").limit_alert, 100)
+        self.assertEqual(config.parse_config("LIMIT_ALERT=lots").limit_alert, 90)
+        self.assertIn("LIMIT_ALERT=90", config.format_config(config.Config()))
+        self.assertIn("LIMIT_ALERT=off", config.format_config(config.Config(limit_alert=None)))
+
     def test_send_delay_clamped(self):
         self.assertEqual(config.parse_config("SEND_DELAY_MS=900").send_delay_ms, 200)
         self.assertEqual(config.parse_config("SEND_DELAY_MS=-5").send_delay_ms, 0)

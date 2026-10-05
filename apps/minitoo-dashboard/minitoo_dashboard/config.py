@@ -20,6 +20,7 @@ class Config:
     send_delay_ms: int = 20
     claude_limits: str = "statusline"
     codex: str = "off"
+    limit_alert: Optional[int] = 90  # % used that flashes a limit alert; None: off
 
     @property
     def has_city(self) -> bool:
@@ -95,6 +96,8 @@ def parse_config(text: str) -> Config:
             cfg.claude_limits = value
         elif key == "CODEX" and value in ("on", "off"):
             cfg.codex = value
+        elif key == "LIMIT_ALERT":
+            cfg.limit_alert = None if value == "off" else _clamp_int(value, 90, 1, 100)
         elif key == "SEND_DELAY_MS":
             cfg.send_delay_ms = _clamp_int(value, 20, 0, 200)
     return cfg
@@ -115,6 +118,7 @@ def format_config(cfg: Config) -> str:
         f"SEND_DELAY_MS={cfg.send_delay_ms}",
         f"CLAUDE_LIMITS={cfg.claude_limits}",
         f"CODEX={cfg.codex}",
+        f"LIMIT_ALERT={'off' if cfg.limit_alert is None else cfg.limit_alert}",
     ]
     return "\n".join(line.replace("\n", " ") for line in lines) + "\n"
 

@@ -11,6 +11,7 @@ from PIL import Image
 from . import config, paths, render, store
 from .collect import Sources
 from .collect import USAGE_HELPER
+from .limit_alerts import Crossing
 from .sources import claude, codex, weather
 
 
@@ -168,7 +169,9 @@ def cmd_preview(args) -> int:
     size = (render.W * 3, render.H * 3)
     render.render_screen(model).resize(size, Image.NEAREST).save(out / "screen.png")
     render.render_alert(cfg.lang).resize(size, Image.NEAREST).save(out / "alert.png")
-    print(f"Wrote screen.png and alert.png to {out}")
+    sample = Crossing("claude", "five_hour", 92.0, now + 4800)
+    render.render_limit_alert(sample, cfg.lang, now).resize(size, Image.NEAREST).save(out / "limit-alert.png")
+    print(f"Wrote screen.png, alert.png and limit-alert.png to {out}")
     return 0
 
 

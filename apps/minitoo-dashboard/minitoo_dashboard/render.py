@@ -8,6 +8,7 @@ from typing import Dict, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 
 from . import i18n, paths
+from .limit_alerts import Crossing
 from .sources.calendar import Item
 from .sources.claude import LimitsView, Window
 from .sources.weather import WeatherView
@@ -263,6 +264,21 @@ def render_alert(lang: str) -> Image.Image:
     for i, line in enumerate(wrap(i18n.t(lang, "alert"), font(8), 140, 2)):
         x = (W - int(font(8).getlength(line))) // 2
         d.text((x, 76 + i * 12), line, font=font(8), fill=WHITE)
+    return img
+
+
+def render_limit_alert(crossing: Crossing, lang: str, now: float) -> Image.Image:
+    img, d = _canvas()
+    color = TEAL if crossing.agent == "codex" else ORANGE
+    d.rectangle([0, 0, W - 1, H - 1], outline=color, width=4)
+
+    def centered(y: int, text: str, size: int, fill) -> None:
+        d.text(((W - int(font(size).getlength(text))) // 2, y), text, font=font(size), fill=fill)
+
+    centered(16, "Codex" if crossing.agent == "codex" else "Claude", 16, color)
+    centered(42, i18n.t(lang, "limit_five" if crossing.window == "five_hour" else "limit_week"), 8, WHITE)
+    centered(60, f"{math.floor(crossing.pct)}%", 24, WHITE)
+    centered(100, i18n.t(lang, "reset_in", d=i18n.duration(crossing.resets_at - now, lang)), 8, DIM)
     return img
 
 

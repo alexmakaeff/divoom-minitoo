@@ -1,6 +1,7 @@
 import unittest
 
 from minitoo_dashboard import i18n, render
+from minitoo_dashboard.limit_alerts import Crossing
 from minitoo_dashboard.sources.calendar import Item
 from minitoo_dashboard.sources.claude import LimitsView, Window
 
@@ -166,6 +167,21 @@ class ScreenTest(unittest.TestCase):
         page = render.render_alert("en")
         self.assertEqual(page.size, (160, 128))
         self.assertEqual(page.getpixel((1, 1)), render.RED)
+
+
+    def test_limit_alert_page_in_service_colour(self):
+        claude = render.render_limit_alert(Crossing("claude", "five_hour", 92.4, NOW + 4800), "en", NOW)
+        codex = render.render_limit_alert(Crossing("codex", "seven_day", 90.0, NOW + 86400), "ru", NOW)
+        self.assertEqual(claude.size, (160, 128))
+        self.assertEqual(claude.getpixel((1, 1)), render.ORANGE)
+        self.assertEqual(codex.getpixel((1, 1)), render.TEAL)
+
+    def test_limit_alert_text_stays_inside_border(self):
+        for lang in ("en", "ru"):
+            for window in ("five_hour", "seven_day"):
+                page = render.render_limit_alert(Crossing("codex", window, 100.0, NOW + 6 * 86400), lang, NOW)
+                inner = [page.getpixel((x, y)) for y in range(4, 124) for x in (4, 5, 154, 155)]
+                self.assertEqual(set(inner), {render.BLACK}, (lang, window))
 
 
 class I18nTest(unittest.TestCase):

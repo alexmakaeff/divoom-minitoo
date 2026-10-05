@@ -43,6 +43,12 @@ thing that grabs your attention is the alert.
 - **Alert**: when Claude asks you something (a permission prompt or a
   question), the screen switches to Clauddy's `alerting` face instantly.
   Without Clauddy, a red alert frame is shown instead.
+- **Limit alert**: when a 5-hour or weekly limit (Claude, or Codex with
+  `CODEX=on`) reaches 90% used, the screen shows a full-screen frame for 10
+  seconds ("Claude / 5-hour limit / 92% / reset 1h20m"), then the dashboard
+  returns. Each window is announced once, until it resets, even across restarts;
+  several crossings follow one another. A question alert takes priority, and a
+  paused dashboard announces after `resume`. Threshold: `LIMIT_ALERT`.
 
 Screen text is English by default; Russian is available.
 
@@ -113,6 +119,7 @@ every second.
 | `SEND_DELAY_MS` | `20` | pause between Bluetooth chunks (0–200) |
 | `CLAUDE_LIMITS` | `statusline` | `statusline`, or `direct` to also ask Anthropic every 5 min (see below) |
 | `CODEX` | `off` | `on` shows Codex (ChatGPT) limits and working status next to Claude's |
+| `LIMIT_ALERT` | `90` | % used that shows a limit alert (1–100), or `off` |
 
 ## Where Claude limits come from
 

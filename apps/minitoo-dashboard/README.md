@@ -181,7 +181,14 @@ is not supported.
 - If reading the logs keeps failing (for example the cache folder is not
   writable), the error is logged once and then at most every 10 minutes, and
   `minitoo-dashboard status` shows it as "Codex error".
-- Codex has no alert screen; only Claude's questions switch the screen.
+- When Codex asks for approval (a command, a file outside the sandbox), the
+  screen switches to the same alert as Claude's questions, and returns once
+  the tool runs or the turn ends. This uses Codex hooks in
+  `~/.codex/hooks.json`, which the installer adds with `CODEX=on`. Codex runs
+  them only after you trust them once: open the Codex CLI
+  (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`
+  if `codex` is not on your PATH), type `/hooks` and trust the MiniToo
+  dashboard hooks. Trust again after the hooks change.
 
 Turn it on with `minitoo-dashboard init --codex on` (or `off`); the installer
 asks when it finds `~/.codex`.
@@ -193,6 +200,7 @@ One background process owns the screen; everything else only writes files in
 
 ```
 Claude Code hooks ──► sessions/<session_id>   ┐
+Codex hooks ────────► sessions/<session_id>   │
 Status line script ─► cache/claude.json        │
 Weather fetcher ────► cache/weather.json       ├─► daemon ─► core/dv ─► MiniToo
 Calendar helper ────► cache/calendar.json      ┘  (launchd)
@@ -261,7 +269,7 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
 ./uninstall.sh
 ```
 
-It stops the daemon, removes the hooks and status line, restores Clauddy's
+It stops the daemon, removes the hooks (Claude's and Codex's) and status line, restores Clauddy's
 hooks if they were replaced, and asks before deleting `~/.minitoo-dashboard`.
 
 ## Credits

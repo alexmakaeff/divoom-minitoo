@@ -304,6 +304,24 @@ says "5-hour limit reset" / "Weekly limit reset", a green check, "Go ahead".
   crossings; same priority, pause and `LIMIT_ALERT=off` rules as limit alerts.
 - `preview` also writes `limit-reset.png`.
 
+### Amendment (2026-10-06): Codex approval alerts
+
+Codex (0.158+, also inside ChatGPT.app) has Claude-style lifecycle hooks in
+`~/.codex/hooks.json`; its session logs carry no approval events. With
+`CODEX=on` the installer adds `dashboard-hook.sh` hooks there:
+
+- `PermissionRequest` → `alerting` (the same alert face as Claude's questions);
+  `PostToolUse`, `UserPromptSubmit`, `Stop`, `Interrupt` → `chilling`;
+  `SessionEnd` → `end`. Files land in the same `sessions/` directory; the
+  daemon is unchanged (any `alerting` session shows the alert).
+- Never `working`: that would light the Claude badge. The Codex badge stays
+  log-based.
+- Codex runs a user hook only after the owner trusts it once in the Codex CLI
+  (`/hooks`); trust is tied to the hook's hash, so a changed hook needs it again.
+- A denied request clears only at `Stop`/`Interrupt`; an unanswered one expires
+  with the 30-minute session TTL, as for Claude.
+- `uninstall.sh` removes them; other hooks in `hooks.json` are kept.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

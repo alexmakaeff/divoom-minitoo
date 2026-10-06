@@ -61,6 +61,24 @@ class HooksTest(unittest.TestCase):
         self.assertNotIn("hooks", settings.uninstall_hooks(installed, HOOK))
 
 
+class CodexHooksTest(unittest.TestCase):
+    def test_alert_on_permission_request_and_never_working(self):
+        s, _ = settings.install_hooks({}, HOOK, events=settings.CODEX_HOOK_EVENTS)
+        self.assertEqual(commands(s, "PermissionRequest"), [f'"{HOOK}" alerting'])
+        for event in ("UserPromptSubmit", "PostToolUse", "Stop", "Interrupt"):
+            self.assertEqual(commands(s, event), [f'"{HOOK}" chilling'])
+        self.assertEqual(commands(s, "SessionEnd"), [f'"{HOOK}" end'])
+        args = [arg for _, arg, _ in settings.CODEX_HOOK_EVENTS]
+        self.assertNotIn("working", args)  # Codex's badge comes from its logs, not the Claude badge
+
+    def test_preserves_unrelated_and_uninstalls(self):
+        base = {"hooks": {"PreToolUse": [OTHER]}}
+        s, _ = settings.install_hooks(base, HOOK, events=settings.CODEX_HOOK_EVENTS)
+        s, _ = settings.install_hooks(s, HOOK, events=settings.CODEX_HOOK_EVENTS)
+        self.assertEqual(commands(s, "Stop"), [f'"{HOOK}" chilling'])
+        self.assertEqual(settings.uninstall_hooks(s, HOOK), base)
+
+
 class StatuslineTest(unittest.TestCase):
     def test_states(self):
         self.assertEqual(settings.statusline_state({}, SL), "absent")
@@ -112,6 +130,15 @@ class CliTest(unittest.TestCase):
             settings.main(["install-hooks", "--settings", str(sfile), "--hook", HOOK,
                            "--saved", str(Path(tmp) / "saved.json")])
             self.assertIn("hooks", json.loads(sfile.read_text()))
+
+    def test_codex_hooks_file(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            hfile = Path(tmp) / "hooks.json"
+            settings.main(["install-codex-hooks", "--hooks-file", str(hfile), "--hook", HOOK])
+            self.assertEqual(commands(json.loads(hfile.read_text()), "PermissionRequest"),
+                             [f'"{HOOK}" alerting'])
+            settings.main(["uninstall-codex-hooks", "--hooks-file", str(hfile), "--hook", HOOK])
+            self.assertEqual(json.loads(hfile.read_text()), {})
 
     def test_render_template_xml(self):
         with tempfile.TemporaryDirectory() as tmp:

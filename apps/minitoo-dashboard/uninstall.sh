@@ -17,6 +17,10 @@ if [ -f "$SETTINGS" ]; then
     --hook "$APP_DIR/bin/dashboard-hook.sh" --statusline "$APP_DIR/bin/statusline.py" \
     --saved "$HOME_DIR/clauddy-hooks.json"
 fi
+if [ -f "$HOME/.codex/hooks.json" ]; then
+  PYTHONPATH="$APP_DIR" "$PY" -m minitoo_dashboard.settings uninstall-codex-hooks \
+    --hooks-file "$HOME/.codex/hooks.json" --hook "$APP_DIR/bin/dashboard-hook.sh"
+fi
 rm -f "$HOME/.claude/commands/dashboard-city.md" "$HOME/.local/bin/minitoo-dashboard"
 read -r -p "Delete $HOME_DIR (config, caches, logs)? [y/N] " answer || true
 case "${answer:-n}" in y|Y|yes) rm -rf "$HOME_DIR" ;; esac

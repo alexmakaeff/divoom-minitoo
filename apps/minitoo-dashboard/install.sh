@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Installs the MiniToo dashboard: config, calendar helper, launchd daemon,
-# Claude Code hooks + status line, and the /dashboard-city command.
+# Claude Code hooks + status line, Codex hooks (with CODEX=on), and the /dashboard-city command.
 set -euo pipefail
 
 APP_DIR="$(cd "$(dirname "$0")" && pwd -P)"
@@ -8,6 +8,7 @@ REPO_ROOT="$(cd "$APP_DIR/../.." && pwd -P)"
 HOME_DIR="${MINITOO_DASHBOARD_HOME:-$HOME/.minitoo-dashboard}"
 CLAUDDY_CONFIG="${CLAUDDY_CONFIG:-$HOME/.clauddy/config}"
 SETTINGS="$HOME/.claude/settings.json"
+CODEX_HOOKS="$HOME/.codex/hooks.json"
 LABEL="local.minitoo.dashboard"
 PLIST="$HOME/Library/LaunchAgents/$LABEL.plist"
 BIN="$APP_DIR/bin/minitoo-dashboard"
@@ -137,13 +138,28 @@ near the top of your status line script (after it reads stdin into \$input):
 EOM
 fi
 
-# 5. Slash command and PATH
+# 5. Codex hooks: its approval requests switch the screen to the alert too
+if [ ${#codex[@]} -gt 0 ] && [ "${codex[1]}" = on ]; then
+  [ -f "$CODEX_HOOKS" ] && cp "$CODEX_HOOKS" "$CODEX_HOOKS.bak-minitoo-dashboard.$(date +%Y%m%d%H%M%S)"
+  settings_tool install-codex-hooks --hooks-file "$CODEX_HOOKS" --hook "$HOOK"
+  cat <<EOM
+
+Codex hooks added to $CODEX_HOOKS. Codex runs them only after you trust them once:
+open the Codex CLI, type /hooks and trust the MiniToo dashboard hooks. Repeat after
+the hooks change (a reinstall from a moved checkout, for example).
+
+EOM
+elif [ ${#codex[@]} -gt 0 ] && [ -f "$CODEX_HOOKS" ]; then
+  settings_tool uninstall-codex-hooks --hooks-file "$CODEX_HOOKS" --hook "$HOOK"
+fi
+
+# 6. Slash command and PATH
 mkdir -p "$HOME/.claude/commands" "$HOME/.local/bin"
 settings_tool render-template --src "$APP_DIR/commands/dashboard-city.md" \
   --dst "$HOME/.claude/commands/dashboard-city.md" --set "__BIN__=$BIN"
 ln -sf "$BIN" "$HOME/.local/bin/minitoo-dashboard"
 
-# 6. launchd
+# 7. launchd
 mkdir -p "$HOME/Library/LaunchAgents"
 settings_tool render-template --src "$APP_DIR/launchd/$LABEL.plist.in" --dst "$PLIST" --xml \
   --set "__PYTHON__=$PY" --set "__APP__=$APP_DIR" --set "__HOME__=$HOME_DIR"

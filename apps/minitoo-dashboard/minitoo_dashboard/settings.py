@@ -1,4 +1,4 @@
-"""Merge MiniToo dashboard hooks/status line into Claude Code settings.json."""
+"""Merge MiniToo dashboard hooks/status line into Claude Code settings.json and Codex hooks.json."""
 from __future__ import annotations
 
 import argparse
@@ -18,6 +18,12 @@ ALERT_MATCHER = "permission_prompt|elicitation_dialog|elicitation_url_dialog|age
 HOOK_EVENTS = (("UserPromptSubmit", "working", None), ("PreToolUse", "working", None),
                ("Notification", "alerting", ALERT_MATCHER), ("Stop", "chilling", None),
                ("SessionEnd", "end", None))
+# Codex only raises the alert: PermissionRequest is its "asking you" moment, and any
+# later step of the turn (or its end) clears it. Never "working": that would light
+# the Claude badge, and Codex's own badge is read from its session logs.
+CODEX_HOOK_EVENTS = (("PermissionRequest", "alerting", None), ("PostToolUse", "chilling", None),
+                     ("UserPromptSubmit", "chilling", None), ("Stop", "chilling", None),
+                     ("Interrupt", "chilling", None), ("SessionEnd", "end", None))
 CLAUDDY_MARK = "clauddy-hook.sh"
 
 
@@ -52,11 +58,11 @@ def _remove(s: dict, predicate: Callable[[str], bool]) -> list:
     return removed
 
 
-def install_hooks(settings: dict, hook_path: str, replace_clauddy: bool = False):
+def install_hooks(settings: dict, hook_path: str, replace_clauddy: bool = False, events=HOOK_EVENTS):
     s = copy.deepcopy(settings)
     removed = _remove(s, lambda c: CLAUDDY_MARK in c) if replace_clauddy else []
     hooks = s.setdefault("hooks", {})
-    for event, arg, matcher in HOOK_EVENTS:
+    for event, arg, matcher in events:
         groups = hooks.setdefault(event, [])
         if any(hook_path in c for g in groups for c in _commands(g)):
             continue
@@ -154,6 +160,10 @@ def main(argv: Optional[List[str]] = None) -> int:
         p.add_argument(arg, type=Path, required=True)
     p.add_argument("--hook", required=True)
     p.add_argument("--statusline", required=True)
+    for name in ("install-codex-hooks", "uninstall-codex-hooks"):
+        p = sub.add_parser(name)
+        p.add_argument("--hooks-file", type=Path, required=True)
+        p.add_argument("--hook", required=True)
     p = sub.add_parser("render-template")
     p.add_argument("--src", type=Path, required=True)
     p.add_argument("--dst", type=Path, required=True)
@@ -189,6 +199,13 @@ def _run(args) -> int:
             data = restore_hooks(data, saved)
             args.saved.unlink()
         _save(args.settings, data)
+        return 0
+    if args.command == "install-codex-hooks":
+        data, _ = install_hooks(_load(args.hooks_file), args.hook, events=CODEX_HOOK_EVENTS)
+        _save(args.hooks_file, data)
+        return 0
+    if args.command == "uninstall-codex-hooks":
+        _save(args.hooks_file, uninstall_hooks(_load(args.hooks_file), args.hook))
         return 0
     mapping = dict(item.split("=", 1) for item in args.set)
     render_template(args.src, args.dst, mapping, args.xml)

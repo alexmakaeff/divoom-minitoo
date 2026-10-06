@@ -10,7 +10,7 @@ from typing import Any, Callable, Optional, Tuple
 from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
-from .limit_alerts import Crossing, LimitAlerts
+from .limit_alerts import Crossing, LimitAlerts, Reset
 from .sources.claude import KeychainAccessError, RefusedError
 
 log = logging.getLogger("minitoo_dashboard")
@@ -70,6 +70,10 @@ def default_limit_alert_blob(crossing: Crossing, cfg: config_mod.Config, now: fl
     return encode.build_blob([render.render_limit_alert(crossing, cfg.lang, now)], 1000)
 
 
+def default_limit_reset_blob(reset: Reset, cfg: config_mod.Config) -> bytes:
+    return encode.build_blob([render.render_limit_reset(reset, cfg.lang)], 1000)
+
+
 class Dashboard:
     def __init__(self, *, sources: Any, device_for: Callable[[str], Any],
                  load_config: Callable[[], config_mod.Config] = config_mod.load_config,
@@ -77,13 +81,14 @@ class Dashboard:
                  dashboard_blob: Callable[..., bytes] = default_dashboard_blob,
                  alert_blob: Callable[..., bytes] = default_alert_blob,
                  limit_alert_blob: Callable[..., bytes] = default_limit_alert_blob,
+                 limit_reset_blob: Callable[..., bytes] = default_limit_reset_blob,
                  home: Optional[Path] = None,
                  monotonic: Callable[[], float] = time.monotonic,
                  notify: Callable[[str, str], None] = macos_notify):
         self.monotonic, self.notify = monotonic, notify
         self.sources, self.device_for, self.load_config = sources, device_for, load_config
         self.clauddy_alert, self.dashboard_blob, self.alert_blob = clauddy_alert, dashboard_blob, alert_blob
-        self.limit_alert_blob = limit_alert_blob
+        self.limit_alert_blob, self.limit_reset_blob = limit_alert_blob, limit_reset_blob
         self.home = Path(home or paths.home())
         self.limit_alerts = LimitAlerts(self.home / "cache" / "limit-alerts.json")
         self.limit_alert_until = 0.0  # a limit alert is on screen until then
@@ -284,22 +289,34 @@ class Dashboard:
         self.alert_shown, self.last_blob = True, None
 
     def _show_limit_alert(self, cfg: config_mod.Config, device: Any, now: float) -> bool:
-        """True while a limit alert is (or has just been put) on screen."""
+        """True while a limit alert or reset is (or has just been put) on screen.
+
+        Resets come first, then crossings; the rest follow, one per LIMIT_ALERT_SHOW.
+        """
         if now < self.limit_alert_until:
             return True
         if cfg.limit_alert is None:
             return False
-        crossings = self.limit_alerts.due(self.sources.limit_caches(cfg), cfg.limit_alert, now)
+        caches = self.sources.limit_caches(cfg)
+        resets = self.limit_alerts.due_resets(caches, cfg.limit_alert, now)
+        if resets:
+            self._show_limit_frame(cfg, device, now, self.limit_reset_blob(resets[0], cfg))
+            self.limit_alerts.done(resets[0].key)
+            log.info("limit reset: %s", resets[0].key)
+            return True
+        crossings = self.limit_alerts.due(caches, cfg.limit_alert, now)
         if not crossings:
             return False
-        crossing = crossings[0]  # the rest follow, one per LIMIT_ALERT_SHOW
+        self._show_limit_frame(cfg, device, now, self.limit_alert_blob(crossings[0], cfg, now))
+        self.limit_alerts.mark(crossings[0], now)
+        log.info("limit alert: %s at %.0f%%", crossings[0].key, crossings[0].pct)
+        return True
+
+    def _show_limit_frame(self, cfg: config_mod.Config, device: Any, now: float, blob: bytes) -> None:
         started = self.monotonic()
-        self._send(cfg, device, self.limit_alert_blob(crossing, cfg, now), now)
-        self.limit_alerts.mark(crossing, now)
-        log.info("limit alert: %s at %.0f%%", crossing.key, crossing.pct)
+        self._send(cfg, device, blob, now)
         shown_at = now + (self.monotonic() - started)  # the transfer itself takes a second or two
         self.limit_alert_until, self.alert_shown, self.last_blob = shown_at + LIMIT_ALERT_SHOW, False, None
-        return True
 
     def _show_dashboard(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.alert_shown = False

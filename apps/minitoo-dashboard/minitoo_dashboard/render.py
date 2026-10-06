@@ -8,7 +8,7 @@ from typing import Dict, List, Optional
 from PIL import Image, ImageDraw, ImageFont
 
 from . import i18n, paths
-from .limit_alerts import Crossing
+from .limit_alerts import Crossing, Reset
 from .sources.calendar import Item
 from .sources.claude import LimitsView, Window
 from .sources.weather import WeatherView
@@ -25,6 +25,7 @@ RED = (230, 57, 70)
 TRACK = (51, 51, 51)
 CLOUD = (200, 210, 222)
 TEAL = (16, 163, 127)
+GREEN = (88, 204, 112)
 FONT_PATH = paths.APP_DIR / "fonts" / "PressStart2P-Regular.ttf"
 MISSING = "\U000F0000"  # private-use plane: renders as the font's .notdef glyph
 
@@ -267,18 +268,31 @@ def render_alert(lang: str) -> Image.Image:
     return img
 
 
-def render_limit_alert(crossing: Crossing, lang: str, now: float) -> Image.Image:
+def _limit_frame(agent: str):
     img, d = _canvas()
-    color = TEAL if crossing.agent == "codex" else ORANGE
+    color = TEAL if agent == "codex" else ORANGE
     d.rectangle([0, 0, W - 1, H - 1], outline=color, width=4)
 
     def centered(y: int, text: str, size: int, fill) -> None:
         d.text(((W - int(font(size).getlength(text))) // 2, y), text, font=font(size), fill=fill)
 
-    centered(16, "Codex" if crossing.agent == "codex" else "Claude", 16, color)
+    centered(16, "Codex" if agent == "codex" else "Claude", 16, color)
+    return img, d, centered
+
+
+def render_limit_alert(crossing: Crossing, lang: str, now: float) -> Image.Image:
+    img, _, centered = _limit_frame(crossing.agent)
     centered(42, i18n.t(lang, "limit_five" if crossing.window == "five_hour" else "limit_week"), 8, WHITE)
     centered(60, f"{math.floor(crossing.pct)}%", 24, WHITE)
     centered(100, i18n.t(lang, "reset_in", d=i18n.duration(crossing.resets_at - now, lang)), 8, DIM)
+    return img
+
+
+def render_limit_reset(reset: Reset, lang: str) -> Image.Image:
+    img, d, centered = _limit_frame(reset.agent)
+    centered(42, i18n.t(lang, "reset_five" if reset.window == "five_hour" else "reset_week"), 8, WHITE)
+    d.line([(64, 76), (76, 88), (98, 62)], fill=GREEN, width=6, joint="curve")
+    centered(102, i18n.t(lang, "go_ahead"), 8, GREEN)
     return img
 
 

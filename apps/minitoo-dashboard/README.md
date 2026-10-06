@@ -49,6 +49,11 @@ thing that grabs your attention is the alert.
   returns. Each window is announced once, until it resets, even across restarts;
   several crossings follow one another. A question alert takes priority, and a
   paused dashboard announces after `resume`. Threshold: `LIMIT_ALERT`.
+- **Limit reset**: once such a window resets, a frame with a green check says
+  "5-hour limit reset / Go ahead" (or "Weekly limit reset") for 10 seconds. It is
+  skipped while the service's other window is still over the threshold (the
+  5 hours are back but the week is used up), so "go ahead" is only shown when it
+  is true. A reset during a restart or sleep is announced afterwards.
 
 Screen text is English by default; Russian is available.
 

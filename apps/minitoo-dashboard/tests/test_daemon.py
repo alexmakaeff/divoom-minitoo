@@ -104,6 +104,7 @@ class DashboardTest(unittest.TestCase):
                          dashboard_blob=lambda model, c: repr(model).encode(),
                          alert_blob=lambda c: b"ALERT", home=self.home,
                          limit_alert_blob=lambda crossing, c, now: self.limit_frames.append(crossing.key) or b"LIMIT",
+                         limit_reset_blob=lambda reset, c: self.limit_frames.append("reset " + reset.key) or b"RESET",
                          monotonic=monotonic or (lambda: 0.0),
                          notify=lambda title, body: self.notices.append((title, body)))
 
@@ -404,6 +405,34 @@ class DashboardTest(unittest.TestCase):
         self.make().tick(T)
         self.make().tick(T + 60)
         self.assertEqual(self.limit_frames, ["claude:five_hour"])
+
+    def test_limit_reset_announced_once_after_the_window_resets(self):
+        self.over()  # 95% of the 5 hours, resets at T + 3600
+        dash = self.make()
+        dash.tick(T)
+        dash.tick(T + 3599)
+        self.assertEqual(self.limit_frames, ["claude:five_hour"])
+        dash.tick(T + 3601)  # cached data still say 95%, but that window is over
+        self.assertEqual(self.limit_frames, ["claude:five_hour", "reset claude:five_hour"])
+        self.assertEqual(self.sends()[-1][0], "rawfile")
+        dash.tick(T + 3615)
+        dash.tick(T + 7200)
+        self.assertEqual(len(self.limit_frames), 2)
+
+    def test_limit_reset_survives_a_restart(self):
+        self.over()
+        self.make().tick(T)
+        self.make().tick(T + 4000)
+        self.assertEqual(self.limit_frames, ["claude:five_hour", "reset claude:five_hour"])
+
+    def test_limit_reset_skipped_while_the_week_is_used_up(self):
+        self.over(five=95.0, week=96.0)
+        dash = self.make()
+        dash.tick(T)
+        dash.tick(T + 11)
+        self.assertEqual(self.limit_frames, ["claude:five_hour", "claude:seven_day"])
+        dash.tick(T + 3601)
+        self.assertEqual(len(self.limit_frames), 2)
 
     def test_limit_alert_off(self):
         self.over()

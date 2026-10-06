@@ -1,7 +1,7 @@
 import unittest
 
 from minitoo_dashboard import i18n, render
-from minitoo_dashboard.limit_alerts import Crossing
+from minitoo_dashboard.limit_alerts import Crossing, Reset
 from minitoo_dashboard.sources.calendar import Item
 from minitoo_dashboard.sources.claude import LimitsView, Window
 
@@ -180,6 +180,20 @@ class ScreenTest(unittest.TestCase):
         for lang in ("en", "ru"):
             for window in ("five_hour", "seven_day"):
                 page = render.render_limit_alert(Crossing("codex", window, 100.0, NOW + 6 * 86400), lang, NOW)
+                inner = [page.getpixel((x, y)) for y in range(4, 124) for x in (4, 5, 154, 155)]
+                self.assertEqual(set(inner), {render.BLACK}, (lang, window))
+
+
+    def test_limit_reset_page(self):
+        page = render.render_limit_reset(Reset("codex", "five_hour", NOW), "en")
+        self.assertEqual(page.size, (160, 128))
+        self.assertEqual(page.getpixel((1, 1)), render.TEAL)
+        self.assertTrue(any(page.getpixel((x, y)) == render.GREEN for x in range(40, 120) for y in range(56, 100)))
+
+    def test_limit_reset_text_stays_inside_border(self):
+        for lang in ("en", "ru"):
+            for window in ("five_hour", "seven_day"):
+                page = render.render_limit_reset(Reset("claude", window, NOW), lang)
                 inner = [page.getpixel((x, y)) for y in range(4, 124) for x in (4, 5, 154, 155)]
                 self.assertEqual(set(inner), {render.BLACK}, (lang, window))
 

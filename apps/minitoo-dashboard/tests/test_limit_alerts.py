@@ -3,7 +3,7 @@ import unittest
 from pathlib import Path
 
 from minitoo_dashboard import store
-from minitoo_dashboard.limit_alerts import Crossing, LimitAlerts, due
+from minitoo_dashboard.limit_alerts import Crossing, LimitAlerts, Reset, due, due_resets
 
 T = 1_790_600_000.0
 
@@ -52,6 +52,45 @@ class DueTest(unittest.TestCase):
         self.assertEqual(due(caches, {}, 90, T), [])
 
 
+class DueResetsTest(unittest.TestCase):
+    def test_announced_window_past_its_reset_is_due(self):
+        fired = {"claude:five_hour": T}
+        self.assertEqual(due_resets({"claude": cache()}, fired, 90, T + 1), ([Reset("claude", "five_hour", T)], []))
+
+    def test_window_not_reset_yet_is_not_due(self):
+        self.assertEqual(due_resets({"claude": cache()}, {"claude:five_hour": T + 1}, 90, T), ([], []))
+
+    def test_other_window_still_over_threshold_drops_it(self):
+        fired = {"claude:five_hour": T}
+        caches = {"claude": cache(five=(3.0, T + 18000), week=(92.0, T + 86400))}
+        self.assertEqual(due_resets(caches, fired, 90, T + 1), ([], ["claude:five_hour"]))
+        # and the other way round: the week reset while the current 5 hours are used up
+        fired = {"claude:seven_day": T}
+        caches = {"claude": cache(five=(97.0, T + 600), week=(1.0, T + 7 * 86400))}
+        self.assertEqual(due_resets(caches, fired, 90, T + 1), ([], ["claude:seven_day"]))
+
+    def test_other_window_already_reset_does_not_block(self):
+        fired = {"claude:five_hour": T}
+        caches = {"claude": cache(week=(99.0, T))}  # stale data: the week reset at T as well
+        self.assertEqual(due_resets(caches, fired, 90, T + 1)[0], [Reset("claude", "five_hour", T)])
+
+    def test_window_over_threshold_again_is_left_to_the_crossing(self):
+        fired = {"claude:five_hour": T}
+        caches = {"claude": cache(five=(93.0, T + 18000))}
+        self.assertEqual(due_resets(caches, fired, 90, T + 3600), ([], []))
+
+    def test_service_switched_off_or_unknown_key_is_dropped(self):
+        fired = {"codex:five_hour": T, "other:five_hour": T, "claude:year": T}
+        resets, dropped = due_resets({"claude": cache()}, fired, 90, T + 1)
+        self.assertEqual((resets, sorted(dropped)), ([], sorted(fired)))
+
+    def test_claude_first_then_codex_five_hour_first(self):
+        fired = {"codex:five_hour": T, "claude:seven_day": T, "claude:five_hour": T}
+        caches = {"claude": cache(), "codex": cache()}
+        resets, _ = due_resets(caches, fired, 90, T + 1)
+        self.assertEqual([r.key for r in resets], ["claude:five_hour", "claude:seven_day", "codex:five_hour"])
+
+
 class LimitAlertsTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -66,11 +105,22 @@ class LimitAlertsTest(unittest.TestCase):
         caches = {"codex": cache(week=(94.0, T + 86400))}
         self.assertEqual(LimitAlerts(self.path).due(caches, 90, T + 60), [])
 
-    def test_expired_records_are_dropped(self):
+    def test_reset_waits_until_announced_even_across_restarts(self):
         alerts = LimitAlerts(self.path)
         alerts.mark(Crossing("claude", "five_hour", 90.0, T + 60), T)
         alerts.mark(Crossing("codex", "five_hour", 90.0, T + 7200), T + 120)
+        caches = {"claude": cache(), "codex": cache()}
+        self.assertEqual(LimitAlerts(self.path).due_resets(caches, 90, T + 120),
+                         [Reset("claude", "five_hour", T + 60)])
+        alerts.done("claude:five_hour")
         self.assertEqual(store.read_json(self.path), {"codex:five_hour": T + 7200})
+
+    def test_reset_that_cannot_be_used_is_dropped_for_good(self):
+        alerts = LimitAlerts(self.path)
+        alerts.mark(Crossing("claude", "five_hour", 95.0, T + 60), T)
+        caches = {"claude": cache(week=(96.0, T + 86400))}
+        self.assertEqual(alerts.due_resets(caches, 90, T + 61), [])
+        self.assertEqual(store.read_json(self.path), {})
 
     def test_unreadable_file_starts_empty(self):
         self.path.parent.mkdir(parents=True)

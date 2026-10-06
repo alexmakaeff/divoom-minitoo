@@ -288,6 +288,22 @@ of 2026-10-05, which do not touch the upload path.
 - Logging only: the existing 5-minute resend still restores the screen. Next step, once the
   log shows how often it happens: a larger `SEND_DELAY_MS` or fewer uploads.
 
+### Amendment (2026-10-06): limit resets
+
+After a window that got a limit alert resets, a 10 s frame in the service colour
+says "5-hour limit reset" / "Weekly limit reset", a green check, "Go ahead".
+
+- `limit-alerts.json` records now outlive their `resets_at` until the reset is
+  announced (`done`) or dropped, so a reset during a restart or sleep is still
+  announced. No fresh data is needed: `resets_at` passed means reset.
+- Dropped silently (owner's choice): when the service's other window is still at
+  or over the threshold ("go ahead" would be false; its own reset announces
+  later), when the service is off (`CODEX=off`) or the key is unknown.
+- A window already over the threshold again is left to its new crossing, which
+  replaces the record. Order: resets first (Claude, then 5 h first), then
+  crossings; same priority, pause and `LIMIT_ALERT=off` rules as limit alerts.
+- `preview` also writes `limit-reset.png`.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

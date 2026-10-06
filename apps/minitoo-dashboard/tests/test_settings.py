@@ -64,18 +64,18 @@ class HooksTest(unittest.TestCase):
 class CodexHooksTest(unittest.TestCase):
     def test_alert_on_permission_request_and_never_working(self):
         s, _ = settings.install_hooks({}, HOOK, events=settings.CODEX_HOOK_EVENTS)
-        self.assertEqual(commands(s, "PermissionRequest"), [f'"{HOOK}" alerting'])
+        self.assertEqual(commands(s, "PermissionRequest"), [f'"{HOOK}" alerting codex'])
         for event in ("UserPromptSubmit", "PostToolUse", "Stop", "Interrupt"):
-            self.assertEqual(commands(s, event), [f'"{HOOK}" chilling'])
-        self.assertEqual(commands(s, "SessionEnd"), [f'"{HOOK}" end'])
-        args = [arg for _, arg, _ in settings.CODEX_HOOK_EVENTS]
+            self.assertEqual(commands(s, event), [f'"{HOOK}" chilling codex'])
+        self.assertEqual(commands(s, "SessionEnd"), [f'"{HOOK}" end codex'])
+        args = [arg.split()[0] for _, arg, _ in settings.CODEX_HOOK_EVENTS]
         self.assertNotIn("working", args)  # Codex's badge comes from its logs, not the Claude badge
 
     def test_preserves_unrelated_and_uninstalls(self):
         base = {"hooks": {"PreToolUse": [OTHER]}}
         s, _ = settings.install_hooks(base, HOOK, events=settings.CODEX_HOOK_EVENTS)
         s, _ = settings.install_hooks(s, HOOK, events=settings.CODEX_HOOK_EVENTS)
-        self.assertEqual(commands(s, "Stop"), [f'"{HOOK}" chilling'])
+        self.assertEqual(commands(s, "Stop"), [f'"{HOOK}" chilling codex'])
         self.assertEqual(settings.uninstall_hooks(s, HOOK), base)
 
 
@@ -135,8 +135,13 @@ class CliTest(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             hfile = Path(tmp) / "hooks.json"
             settings.main(["install-codex-hooks", "--hooks-file", str(hfile), "--hook", HOOK])
-            self.assertEqual(commands(json.loads(hfile.read_text()), "PermissionRequest"),
-                             [f'"{HOOK}" alerting'])
+            hfile.write_text(json.dumps({"hooks": {"PermissionRequest": [
+                {"hooks": [{"type": "command", "command": f'"{HOOK}" alerting'}]}], "Stop": [OTHER]}}))
+            settings.main(["install-codex-hooks", "--hooks-file", str(hfile), "--hook", HOOK])
+            data = json.loads(hfile.read_text())
+            self.assertEqual(commands(data, "PermissionRequest"), [f'"{HOOK}" alerting codex'])
+            self.assertEqual(commands(data, "Stop"), ["my-linter", f'"{HOOK}" chilling codex'])
+            hfile.write_text("{}")
             settings.main(["uninstall-codex-hooks", "--hooks-file", str(hfile), "--hook", HOOK])
             self.assertEqual(json.loads(hfile.read_text()), {})
 

@@ -29,6 +29,9 @@ class Sources:
     def status(self, now: float) -> str:
         return status_mod.aggregate(status_mod.read_sessions(self.sessions_dir), now)
 
+    def alert_agent(self, now: float) -> Optional[str]:
+        return status_mod.alert_agent(status_mod.read_sessions(self.sessions_dir), now)
+
     def refresh_weather(self, cfg: Config, now: float) -> None:
         record = self.fetch_weather(cfg.city_lat, cfg.city_lon, cfg.temp_unit, now)
         store.write_json_atomic(self.cache_dir / "weather.json", record)

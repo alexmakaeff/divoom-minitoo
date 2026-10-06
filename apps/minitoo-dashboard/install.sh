@@ -149,6 +149,12 @@ open the Codex CLI, type /hooks and trust the MiniToo dashboard hooks. Repeat af
 the hooks change (a reinstall from a moved checkout, for example).
 
 EOM
+  if [ -f "$CLAUDDY_CONFIG" ]; then
+    case "$(ask "Upload Codex's own alert animation into Clauddy's unused 'working' face? [Y/n] " y)" in
+      n|N|no|No) note "Codex questions will use Claude's alert face." ;;
+      *) "$APP_DIR/bin/upload-codex-face.sh" || note "Upload failed; retry later with bin/upload-codex-face.sh" ;;
+    esac
+  fi
 elif [ ${#codex[@]} -gt 0 ] && [ -f "$CODEX_HOOKS" ]; then
   settings_tool uninstall-codex-hooks --hooks-file "$CODEX_HOOKS" --hook "$HOOK"
 fi

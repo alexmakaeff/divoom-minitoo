@@ -21,9 +21,10 @@ HOOK_EVENTS = (("UserPromptSubmit", "working", None), ("PreToolUse", "working", 
 # Codex only raises the alert: PermissionRequest is its "asking you" moment, and any
 # later step of the turn (or its end) clears it. Never "working": that would light
 # the Claude badge, and Codex's own badge is read from its session logs.
-CODEX_HOOK_EVENTS = (("PermissionRequest", "alerting", None), ("PostToolUse", "chilling", None),
-                     ("UserPromptSubmit", "chilling", None), ("Stop", "chilling", None),
-                     ("Interrupt", "chilling", None), ("SessionEnd", "end", None))
+# The "codex" argument picks Codex's own alert face.
+CODEX_HOOK_EVENTS = (("PermissionRequest", "alerting codex", None), ("PostToolUse", "chilling codex", None),
+                     ("UserPromptSubmit", "chilling codex", None), ("Stop", "chilling codex", None),
+                     ("Interrupt", "chilling codex", None), ("SessionEnd", "end codex", None))
 CLAUDDY_MARK = "clauddy-hook.sh"
 
 
@@ -201,7 +202,9 @@ def _run(args) -> int:
         _save(args.settings, data)
         return 0
     if args.command == "install-codex-hooks":
-        data, _ = install_hooks(_load(args.hooks_file), args.hook, events=CODEX_HOOK_EVENTS)
+        # replace, not skip, our older entries so a changed argument list takes effect
+        data, _ = install_hooks(uninstall_hooks(_load(args.hooks_file), args.hook), args.hook,
+                                events=CODEX_HOOK_EVENTS)
         _save(args.hooks_file, data)
         return 0
     if args.command == "uninstall-codex-hooks":

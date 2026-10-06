@@ -77,7 +77,7 @@ def default_limit_reset_blob(reset: Reset, cfg: config_mod.Config) -> bytes:
 class Dashboard:
     def __init__(self, *, sources: Any, device_for: Callable[[str], Any],
                  load_config: Callable[[], config_mod.Config] = config_mod.load_config,
-                 clauddy_alert: Callable[[], Optional[Tuple[int, int]]] = config_mod.clauddy_alert,
+                 clauddy_alert: Callable[..., Optional[Tuple[int, int]]] = config_mod.clauddy_alert,
                  dashboard_blob: Callable[..., bytes] = default_dashboard_blob,
                  alert_blob: Callable[..., bytes] = default_alert_blob,
                  limit_alert_blob: Callable[..., bytes] = default_limit_alert_blob,
@@ -101,6 +101,7 @@ class Dashboard:
         self.last_blob: Optional[bytes] = None
         self.last_blob_sent = 0.0
         self.alert_shown = False
+        self.alert_agent: Optional[str] = None  # whose face alert_shown refers to
         self.paused = False
         self.status = "chilling"
         self.last_tick: Optional[float] = None
@@ -279,14 +280,15 @@ class Dashboard:
 
     def _show_alert(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.limit_alert_until = 0.0  # a question replaces a limit alert; the dashboard follows it
-        if self.alert_shown:
+        agent = self.sources.alert_agent(now) or "claude"
+        if self.alert_shown and agent == self.alert_agent:
             return
-        target = self.clauddy_alert()
+        target = self.clauddy_alert(agent=agent)
         if target:
             device.select_clock(*target)
         else:
             self._send(cfg, device, self.alert_blob(cfg), now)
-        self.alert_shown, self.last_blob = True, None
+        self.alert_shown, self.alert_agent, self.last_blob = True, agent, None
 
     def _show_limit_alert(self, cfg: config_mod.Config, device: Any, now: float) -> bool:
         """True while a limit alert or reset is (or has just been put) on screen.

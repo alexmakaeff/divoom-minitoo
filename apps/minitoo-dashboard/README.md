@@ -182,13 +182,21 @@ is not supported.
   writable), the error is logged once and then at most every 10 minutes, and
   `minitoo-dashboard status` shows it as "Codex error".
 - When Codex asks for approval (a command, a file outside the sandbox), the
-  screen switches to the same alert as Claude's questions, and returns once
+  screen switches to Codex's own alert animation (a teal terminal with a "?",
+  `assets/codex-alerting.gif`), and returns once
   the tool runs or the turn ends. This uses Codex hooks in
   `~/.codex/hooks.json`, which the installer adds with `CODEX=on`. Codex runs
   them only after you trust them once: open the Codex CLI
   (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`
   if `codex` is not on your PATH), type `/hooks` and trust the MiniToo
   dashboard hooks. Trust again after the hooks change.
+- The animation lives in Clauddy's "working" custom face, which the dashboard
+  does not use (the MiniToo has only three). `bin/upload-codex-face.sh [GIF]`
+  uploads it (the installer offers to) and adds `CLAUDDY_CLOCK_CODEX` to
+  `~/.clauddy/config`; without it Codex uses Claude's alert face. Re-running
+  Clauddy's `install.sh` overwrites the slot: run the script again after it.
+  To change the art, edit `assets/make-codex-alert.py`, run it, then upload.
+  If both agents are asking, the newest question's face is shown.
 
 Turn it on with `minitoo-dashboard init --codex on` (or `off`); the installer
 asks when it finds `~/.codex`.

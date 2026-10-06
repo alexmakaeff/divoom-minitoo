@@ -138,10 +138,12 @@ def save_config(cfg: Config, path: Optional[Path] = None) -> None:
     tmp.replace(target)
 
 
-def clauddy_alert(path: Optional[Path] = None) -> Optional[Tuple[int, int]]:
+def clauddy_alert(path: Optional[Path] = None, agent: str = "claude") -> Optional[Tuple[int, int]]:
+    """(ClockId, DeviceId) of the agent's alert face; Codex falls back to Claude's."""
     kv = read_kv(Path(path or paths.clauddy_config_path()))
+    key = "CLAUDDY_CLOCK_CODEX" if agent == "codex" and kv.get("CLAUDDY_CLOCK_CODEX") else "CLAUDDY_CLOCK_ALERTING"
     try:
-        return int(kv["CLAUDDY_CLOCK_ALERTING"]), int(kv["CLAUDDY_DEVICE_ID"])
+        return int(kv[key]), int(kv["CLAUDDY_DEVICE_ID"])
     except (KeyError, ValueError):
         return None
 

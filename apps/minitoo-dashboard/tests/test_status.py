@@ -25,6 +25,15 @@ class AggregateTest(unittest.TestCase):
     def test_expired_sessions_ignored(self):
         self.assertEqual(status.aggregate([("alerting", NOW - 1801), ("chilling", NOW)], NOW), "chilling")
 
+    def test_alert_agent_is_the_newest_alert(self):
+        entries = [("alerting", NOW - 20, "claude"), ("alerting", NOW - 5, "codex"), ("working", NOW, "claude")]
+        self.assertEqual(status.alert_agent(entries, NOW), "codex")
+        entries.append(("alerting", NOW - 1, "claude"))
+        self.assertEqual(status.alert_agent(entries, NOW), "claude")
+
+    def test_alert_agent_none_without_live_alert(self):
+        self.assertIsNone(status.alert_agent([("alerting", NOW - 1801, "codex"), ("working", NOW, "claude")], NOW))
+
     def test_unknown_state_ignored(self):
         self.assertEqual(status.aggregate([("bogus", NOW)], NOW), "chilling")
 
@@ -37,16 +46,18 @@ class ReadSessionsTest(unittest.TestCase):
             (d / "b").write_text("garbage")
             (d / ".tmp").write_text("alerting 5\n")
             (d / "c").write_text("alerting 456\n")
-            self.assertEqual(sorted(status.read_sessions(d)), [("alerting", 456.0), ("working", 123.0)])
+            (d / "x").write_text("alerting 789 codex\n")
+            self.assertEqual(sorted(status.read_sessions(d)),
+                             [("alerting", 456.0, "claude"), ("alerting", 789.0, "codex"), ("working", 123.0, "claude")])
 
     def test_missing_dir(self):
         self.assertEqual(status.read_sessions(Path("/nonexistent/sessions")), [])
 
 
 class HookScriptTest(unittest.TestCase):
-    def run_hook(self, home, state, payload):
+    def run_hook(self, home, state, payload, *extra):
         env = dict(os.environ, MINITOO_DASHBOARD_HOME=home)
-        return subprocess.run(["bash", str(HOOK), state], input=payload, text=True,
+        return subprocess.run(["bash", str(HOOK), state, *extra], input=payload, text=True,
                               env=env, capture_output=True, timeout=5)
 
     def test_writes_session_state(self):
@@ -55,6 +66,14 @@ class HookScriptTest(unittest.TestCase):
             self.assertEqual(r.returncode, 0)
             content = (Path(home) / "sessions" / "abc-123").read_text()
             self.assertTrue(content.startswith("chilling "))
+
+    def test_agent_argument_is_recorded(self):
+        with tempfile.TemporaryDirectory() as home:
+            self.run_hook(home, "alerting", '{"session_id":"c1"}', "codex")
+            state, _, agent = (Path(home) / "sessions" / "c1").read_text().split()
+            self.assertEqual((state, agent), ("alerting", "codex"))
+            self.run_hook(home, "chilling", '{"session_id":"c2"}', "bogus agent")
+            self.assertEqual(len((Path(home) / "sessions" / "c2").read_text().split()), 2)
 
     def test_end_removes_session(self):
         with tempfile.TemporaryDirectory() as home:

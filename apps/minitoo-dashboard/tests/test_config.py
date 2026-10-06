@@ -80,6 +80,15 @@ class ClauddyAlertTest(unittest.TestCase):
             path.write_text("# c\nCLAUDDY_DEVICE_ID=123456789\nCLAUDDY_CLOCK_ALERTING=988\n")
             self.assertEqual(config.clauddy_alert(path), (988, 123456789))
 
+    def test_codex_face_falls_back_to_claude_face(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "config"
+            path.write_text("CLAUDDY_DEVICE_ID=1\nCLAUDDY_CLOCK_ALERTING=988\n")
+            self.assertEqual(config.clauddy_alert(path, "codex"), (988, 1))
+            path.write_text("CLAUDDY_DEVICE_ID=1\nCLAUDDY_CLOCK_ALERTING=988\nCLAUDDY_CLOCK_CODEX=986\n")
+            self.assertEqual(config.clauddy_alert(path, "codex"), (986, 1))
+            self.assertEqual(config.clauddy_alert(path, "claude"), (988, 1))
+
     def test_missing_returns_none(self):
         self.assertIsNone(config.clauddy_alert(Path("/nonexistent/clauddy")))
 

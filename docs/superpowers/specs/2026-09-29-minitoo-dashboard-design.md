@@ -321,6 +321,15 @@ Codex (0.158+, also inside ChatGPT.app) has Claude-style lifecycle hooks in
 - A denied request clears only at `Stop`/`Interrupt`; an unanswered one expires
   with the 30-minute session TTL, as for Claude.
 - `uninstall.sh` removes them; other hooks in `hooks.json` are kept.
+- Own face (owner's choice, same day): Codex's alert is a separate animation
+  (`assets/codex-alerting.gif`, drawn by `assets/make-codex-alert.py`) in
+  Clauddy's "working" custom face (page 1, ClockId 986), unused since the
+  dashboard draws its own screens; the MiniToo has only three custom faces.
+  `bin/upload-codex-face.sh` uploads it (dashboard paused meanwhile) and writes
+  `CLAUDDY_CLOCK_CODEX` to the Clauddy config; missing → Claude's face.
+- Codex hooks pass `codex` as a second argument; the session file becomes
+  `<state> <ts> codex` (old two-field files read as Claude). `status.alert_agent`
+  picks the newest live alert; the daemon re-selects when that agent changes.
 
 ## 3. Architecture
 

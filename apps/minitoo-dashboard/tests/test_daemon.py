@@ -13,12 +13,15 @@ CFG = Config(device_mac="AA:BB:CC:DD:EE:FF", city_name="X", city_lat=1.0, city_l
 
 class FakeSources:
     def __init__(self):
-        self.state, self.version = "chilling", 0
+        self.state, self.version, self.agent = "chilling", 0, "claude"
         self.weather_calls = self.calendar_calls = 0
         self.weather_fails = False
 
     def status(self, now):
         return self.state
+
+    def alert_agent(self, now):
+        return self.agent if self.state == "alerting" else None
 
     def refresh_weather(self, cfg, now):
         self.weather_calls += 1
@@ -100,7 +103,7 @@ class DashboardTest(unittest.TestCase):
 
     def make(self, alert=(988, 1), cfg=CFG, monotonic=None):
         return Dashboard(sources=self.sources, device_for=lambda mac: self.device, load_config=lambda: cfg,
-                         clauddy_alert=lambda: alert,
+                         clauddy_alert=lambda agent="claude": alert and (alert[0] - 2, alert[1]) if agent == "codex" else alert,
                          dashboard_blob=lambda model, c: repr(model).encode(),
                          alert_blob=lambda c: b"ALERT", home=self.home,
                          limit_alert_blob=lambda crossing, c, now: self.limit_frames.append(crossing.key) or b"LIMIT",
@@ -141,6 +144,17 @@ class DashboardTest(unittest.TestCase):
         self.sources.state = "chilling"
         dash.tick(T + 3)
         self.assertEqual(self.sends()[-1][0], "rawfile")
+
+    def test_codex_alert_uses_its_own_face_and_switches(self):
+        dash = self.make()
+        self.sources.state, self.sources.agent = "alerting", "codex"
+        dash.tick(T)
+        dash.tick(T + 1)
+        self.assertEqual(self.sends(), [("clock", 986, 1)])
+        self.sources.agent = "claude"
+        dash.tick(T + 2)
+        dash.tick(T + 3)
+        self.assertEqual(self.sends(), [("clock", 986, 1), ("clock", 988, 1)])
 
     def test_alert_without_clauddy_sends_alert_frame(self):
         dash = self.make(alert=None)

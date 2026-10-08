@@ -27,6 +27,10 @@ class CollectTest(unittest.TestCase):
     def sources(self, **kw):
         return Sources(self.cache, self.sessions, **kw)
 
+    def test_claude_defaults_to_direct_fetch(self):
+        from minitoo_dashboard.sources import claude
+        self.assertIs(self.sources().fetch_claude, claude.fetch_direct)
+
     def test_model_from_caches(self):
         store.write_json_atomic(self.cache / "weather.json", WEATHER)
         store.write_json_atomic(self.cache / "calendar.json", {"fetched_at": NOW, "status": "ok", "events": [

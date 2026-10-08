@@ -10,7 +10,6 @@ from PIL import Image
 
 from . import config, paths, render, store
 from .collect import Sources
-from .collect import USAGE_HELPER
 from .limit_alerts import Crossing, Reset
 from .sources import claude, codex, weather
 
@@ -123,20 +122,6 @@ def cmd_status(args) -> int:
     return 0
 
 
-def cmd_grant_keychain(args) -> int:
-    print("macOS will ask to let 'usage-helper' use the 'Claude Code-credentials' Keychain item.")
-    print("Choose 'Always Allow'. The background dashboard never shows this prompt itself.")
-    now = time.time()
-    try:
-        record = claude.fetch_direct(USAGE_HELPER, now, timeout=300, interactive=True)
-    except claude.DirectError as exc:
-        print(f"Did not work: {exc}", file=sys.stderr)
-        return 1
-    store.write_json_atomic(paths.cache_dir() / "claude.json", record)
-    print("Keychain access granted; direct Claude limits work ✓")
-    return 0
-
-
 def cmd_refresh_limits(args) -> int:
     """Ask the daemon to check Claude limits now (skipping any backoff) and report the result."""
     state = store.read_json(paths.state_path()) or {}
@@ -229,7 +214,6 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("--pick", type=int)
     sub.add_parser("status", help="show what the dashboard is doing")
     sub.add_parser("refresh-limits", help="check Claude limits now (CLAUDE_LIMITS=direct)")
-    sub.add_parser("grant-keychain", help="let usage-helper read the Claude Code login (shows the macOS prompt)")
     p = sub.add_parser("preview", help="render pages to PNG without a device")
     p.add_argument("--demo", action="store_true", help="use sample data")
     p.add_argument("--out")
@@ -243,4 +227,4 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
         return cmd_city(args, geocode or weather.geocode)
     return {"run": cmd_run, "init": cmd_init, "status": cmd_status, "preview": cmd_preview,
             "pause": cmd_pause, "resume": cmd_resume, "logs": cmd_logs,
-            "grant-keychain": cmd_grant_keychain, "refresh-limits": cmd_refresh_limits}[args.command](args)
+            "refresh-limits": cmd_refresh_limits}[args.command](args)

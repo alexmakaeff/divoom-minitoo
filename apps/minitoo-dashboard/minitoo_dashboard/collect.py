@@ -7,9 +7,6 @@ from . import paths, render, status as status_mod, store
 from .config import Config
 from .sources import calendar, claude, codex, weather
 
-USAGE_HELPER = paths.APP_DIR / "usage-helper" / "usage-helper"
-
-
 class Sources:
     def __init__(self, cache_dir: Path, sessions_dir: Path, *,
                  fetch_weather: Callable[..., dict] = weather.fetch_weather,
@@ -22,7 +19,7 @@ class Sources:
         self.fetch_weather = fetch_weather
         self.fetch_events = fetch_events or calendar.fetch_events
         self.helper_app = helper_app or calendar.HELPER_APP
-        self.fetch_claude = fetch_claude or (lambda now: claude.fetch_direct(USAGE_HELPER, now))
+        self.fetch_claude = fetch_claude or claude.fetch_direct
         self.codex_root = Path(codex_root or paths.codex_sessions_dir())
         self.codex_scanner = codex.Scanner(self.codex_root)
 

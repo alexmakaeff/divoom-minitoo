@@ -72,24 +72,17 @@ Where should Claude limits come from?
   2) Also ask Anthropic directly every 5 minutes, like Claude Code's /usage.
      Works with any Claude client, but:
        - it uses an undocumented endpoint that may change or break at any time;
-       - a small helper reads your Claude Code login token from the Keychain
-         (only percentages leave it; the token is never printed or stored);
+       - it reads your Claude Code login token from the Keychain with macOS's
+         security tool (only percentages are kept; the token is never printed,
+         stored or refreshed);
        - using a subscription token outside Claude Code is a grey area in
          Anthropic's terms. Your call.
      If it stops working, the dashboard falls back to the status line.
 EOM
 limits=statusline
 if [ "$(ask 'Choose 1 or 2 [1]: ' 1)" = 2 ]; then
-  "$APP_DIR/usage-helper/build.sh" >/dev/null
-  note "macOS will ask to let 'usage-helper' use the 'Claude Code-credentials' Keychain item."
-  note "Choose 'Always Allow' so the dashboard can check every 5 minutes."
-  if "$APP_DIR/usage-helper/usage-helper" --interactive >/dev/null; then
-    limits=direct
-    note "Direct Claude limits: working ✓"
-  else
-    note "Direct Claude limits did not work (Keychain access denied or request failed); using the status line only."
-    note "Switch later by setting CLAUDE_LIMITS=direct in $HOME_DIR/config."
-  fi
+  limits=direct
+  note "Direct Claude limits on. In a minute check them with: minitoo-dashboard status"
 fi
 codex=()  # without ~/.codex keep whatever CODEX is already set to
 if [ -d "$HOME/.codex/sessions" ]; then

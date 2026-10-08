@@ -194,7 +194,7 @@ class DashboardTest(unittest.TestCase):
 
     def test_slow_tick_is_not_mistaken_for_wake(self):
         # A 30 s Keychain wait plus a 20 s device timeout used to look like sleep/wake,
-        # which re-ran usage-helper every ~50 s and stacked Keychain prompts.
+        # which re-ran the Claude usage check every ~50 s and stacked Keychain prompts.
         clock = [0.0]
         self.sources.on_claude = lambda: clock.__setitem__(0, clock[0] + 30)
         self.device.fail = True
@@ -267,7 +267,7 @@ class DashboardTest(unittest.TestCase):
         for t in range(300, 4000, 10):
             dash.tick(T + t)
         self.assertEqual(len(self.notices), 1)
-        self.assertIn("grant-keychain", self.notices[0][1])
+        self.assertIn("minitoo-dashboard status", self.notices[0][1])
         self.assertIn("Keychain", self.notices[0][1])
         self.sources.claude_error = None
         dash.tick(T + 6000)
@@ -297,12 +297,12 @@ class DashboardTest(unittest.TestCase):
 
     def test_refused_requests_back_off_and_recover(self):
         from minitoo_dashboard.sources.claude import RefusedError
-        self.sources.claude_error = RefusedError("usage-helper: http_403", None)
+        self.sources.claude_error = RefusedError("Claude usage: http_403", None)
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
         self.assertEqual(self.claude_times(dash, 11401), [0, 600, 1800, 4200, 7800, 11400])
         self.sources.claude_error = None
         dash.tick(T + 15000)
-        self.sources.claude_error = RefusedError("usage-helper: http_403", None)
+        self.sources.claude_error = RefusedError("Claude usage: http_403", None)
         dash.tick(T + 15300)
         dash.tick(T + 15600)
         self.assertEqual(self.sources.claude_calls, 8)  # success reset the backoff to 10 min
@@ -311,7 +311,7 @@ class DashboardTest(unittest.TestCase):
 
     def test_retry_after_is_honoured_and_survives_wake(self):
         from minitoo_dashboard.sources.claude import RefusedError
-        self.sources.claude_error = RefusedError("usage-helper: http_429", 7200)
+        self.sources.claude_error = RefusedError("Claude usage: http_429", 7200)
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
         dash.tick(T)
         dash.tick(T + 1000)  # wake jump: everything else refreshes, the refused request waits
@@ -322,7 +322,7 @@ class DashboardTest(unittest.TestCase):
 
     def test_refresh_request_file_checks_now(self):
         from minitoo_dashboard.sources.claude import RefusedError
-        self.sources.claude_error = RefusedError("usage-helper: http_429", 7200)
+        self.sources.claude_error = RefusedError("Claude usage: http_429", 7200)
         dash = self.make(cfg=Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct"))
         dash.tick(T)
         (self.home / "refresh-limits").touch()

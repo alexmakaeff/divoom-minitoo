@@ -100,27 +100,9 @@ class CliTest(unittest.TestCase):
         _, out = self.run_cli(["status"])
         self.assertNotIn("Limits error", out)
 
-    def test_grant_keychain_runs_helper_interactively_and_caches(self):
-        from minitoo_dashboard import store
-        calls = []
-
-        def fetch(helper, now, interactive=False, **kw):
-            calls.append(interactive)
-            return {"captured_at": now, "source": "direct"}
-        with mock.patch("minitoo_dashboard.sources.claude.fetch_direct", fetch):
-            code, out = self.run_cli(["grant-keychain"])
-        self.assertEqual((code, calls), (0, [True]))
-        self.assertEqual(store.read_json(self.home / "cache" / "claude.json")["source"], "direct")
-
-    def test_grant_keychain_reports_failure(self):
-        from minitoo_dashboard.sources.claude import KeychainAccessError
-
-        def fetch(helper, now, interactive=False, **kw):
-            raise KeychainAccessError("Keychain access was not allowed")
-        with mock.patch("minitoo_dashboard.sources.claude.fetch_direct", fetch):
-            code, out = self.run_cli(["grant-keychain"])
-        self.assertEqual(code, 1)
-        self.assertIn("not allowed", out)
+    def test_grant_keychain_is_gone(self):
+        with self.assertRaises(SystemExit):
+            self.run_cli(["grant-keychain"])
 
     def test_refresh_limits_asks_daemon_and_reports(self):
         from minitoo_dashboard import store
@@ -129,7 +111,7 @@ class CliTest(unittest.TestCase):
         def daemon_answers(seconds):
             self.assertTrue((self.home / "refresh-limits").exists())
             store.write_json_atomic(self.home / "state.json", {"updated_at": 9e9, "limits_checked_at": 9e9,
-                                                               "limits_error": "usage-helper: http_429 slow down"})
+                                                               "limits_error": "Claude usage: http_429 slow down"})
         with mock.patch("minitoo_dashboard.cli.time.sleep", daemon_answers):
             code, out = self.run_cli(["refresh-limits"])
         self.assertEqual(code, 1)

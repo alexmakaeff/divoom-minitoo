@@ -372,7 +372,7 @@ Replaces the 2026-10-02 `usage-helper` grant model:
   without firing the dashboard's own hooks is settled by a check on a really
   expired token. Until then, and when renewal fails, the error says to run
   `claude` in Terminal once.
-- Check result (2026-10-08 19:10, Claude Code 2.1.285, token expired 18:44):
+- Check result (2026-10-08 19:08, Claude Code 2.1.285, token expired 18:44):
   `claude auth status` does **not** renew (item unchanged). `claude mcp list`
   **does**: it fetches the account's claude.ai connectors, so the CLI renews the
   token first (new `expiresAt` +8 h, ~8 s). No model request, no session

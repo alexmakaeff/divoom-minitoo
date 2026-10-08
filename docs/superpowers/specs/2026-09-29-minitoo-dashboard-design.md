@@ -331,6 +331,42 @@ Codex (0.158+, also inside ChatGPT.app) has Claude-style lifecycle hooks in
   `<state> <ts> codex` (old two-field files read as Claude). `status.alert_agent`
   picks the newest live alert; the daemon re-selects when that agent changes.
 
+### Amendment (2026-10-08): Claude token without Keychain grant
+
+Incident on 2026-10-07/08: direct limits stopped for two reasons. (1) The
+token in `Claude Code-credentials` expired at 13:36 UTC and nothing renewed
+it: only the Claude Code CLI (`claude`) renews that item; the Claude desktop
+app signs in on its own. (2) When the CLI did renew it (an update of the same
+item, creation date unchanged), `usage-helper` lost its "Always Allow" grant
+again, so `grant-keychain` would be needed after every renewal (~8 h).
+`/usr/bin/security find-generic-password -w` read the item without any prompt
+before and after the renewal: Claude Code writes the item through it, so it
+stays on the item's access list.
+
+Replaces the 2026-10-02 `usage-helper` grant model:
+
+- The daemon reads the item with `/usr/bin/security find-generic-password
+  -s "Claude Code-credentials" -w` and takes `claudeAiOauth.accessToken` and
+  `expiresAt`; it calls `/api/oauth/usage` itself (`urllib`, same headers,
+  15 s timeout). The token stays in memory: never logged, written or refreshed
+  by the dashboard. Only percentages and reset times are kept.
+- `security` gets 10 s; still running (a Keychain prompt appeared after all)
+  → killed, treated as no Keychain access: retry every 30 min, logged once,
+  one notification per episode, as before. Item missing → "Claude Code is not
+  signed in; run `claude` in Terminal".
+- Error mapping is unchanged (403/429 back-off with Retry-After, other HTTP
+  and network errors keep the last data); the API error type/message is still
+  shortened to 200 chars.
+- `usage-helper/` (Swift), `grant-keychain` and the `--interactive` path are
+  removed; `install.sh` no longer builds or runs the helper. The notification
+  text and `status` hint say to run `claude` in Terminal.
+- Expired token (`expiresAt` passed): the daemon starts the CLI to renew it,
+  at most once an hour, only when `claude` is on the PATH, never while the
+  token is still valid. Which command renews without a model request and
+  without firing the dashboard's own hooks is settled by a check on a really
+  expired token (pending; first candidate `claude auth status`). Until then,
+  and when renewal fails, the error says to run `claude` in Terminal once.
+
 ## 3. Architecture
 
 One long-running process owns the screen. Everything else only writes files.

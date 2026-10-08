@@ -76,6 +76,12 @@ class DirectUsageTest(unittest.TestCase):
             claude.parse_direct({"status": "expired"}, 0)
         self.assertIn("expired", str(ctx.exception))
 
+    def test_expired_names_the_terminal_command(self):
+        # The Claude app signs in on its own; only `claude` in Terminal renews this token.
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.parse_direct({"status": "expired", "detail": "token expired"}, 0)
+        self.assertIn("run 'claude' in Terminal", str(ctx.exception))
+
     def test_keychain_access_statuses_raise_access_error(self):
         for status in ("needs_access", "keychain_denied"):
             with self.assertRaises(claude.KeychainAccessError) as ctx:

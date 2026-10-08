@@ -78,6 +78,8 @@ ACCESS_STATUSES = ("needs_access", "keychain_denied")
 REFUSED_STATUSES = ("http_403", "http_429")
 PLAN_HINT = "no subscription access (plan lapsed?); after renewing it can take a while"
 GRANT_HINT = "run 'minitoo-dashboard grant-keychain' and choose Always Allow"
+# The Claude app signs in on its own and never renews the Keychain token Claude Code's CLI keeps.
+EXPIRED_HINT = "Claude Code login token expired; run 'claude' in Terminal once (the Claude app does not renew it)"
 
 
 def iso_epoch(value: Any) -> Optional[float]:
@@ -102,6 +104,8 @@ def parse_direct(data: Any, now: float) -> dict:
         if data["status"] == "http_403":
             message += f"; {PLAN_HINT}"
         raise RefusedError(message, retry)
+    if data.get("status") == "expired":
+        raise DirectError(f"usage-helper: {EXPIRED_HINT}")
     if data.get("status") != "ok":
         raise DirectError(f"usage-helper: {data.get('status', 'error')} {data.get('detail', '')}".strip())
     record: dict = {"captured_at": now, "source": "direct"}

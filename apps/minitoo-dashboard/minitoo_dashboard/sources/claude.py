@@ -2,9 +2,10 @@ from __future__ import annotations
 
 import json
 import subprocess
-from dataclasses import dataclass
+import urllib.error
+import urllib.request
+from dataclasses import dataclass, field
 from datetime import datetime
-from pathlib import Path
 from typing import Any, Callable, Optional
 
 STALE_AFTER = 600
@@ -58,12 +59,23 @@ def limits_view(cache: Any, now: float) -> LimitsView:
     return LimitsView(_window(cache.get("five_hour"), now), _window(cache.get("seven_day"), now), as_of, True)
 
 
+SERVICE = "Claude Code-credentials"
+SECURITY = "/usr/bin/security"
+NOT_FOUND = 44  # security's exit code for a missing item
+KEYCHAIN_TIMEOUT = 10  # still running after this: a Keychain prompt appeared; never wait on it
+USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # undocumented; Claude Code's /usage uses it
+
+
 class DirectError(Exception):
     pass
 
 
 class KeychainAccessError(DirectError):
-    """usage-helper may not read the Claude Code login; only the owner can grant it."""
+    """`security` may not read the Claude Code login; only the owner can fix it."""
+
+
+class TokenExpiredError(DirectError):
+    """The login token expired or was rejected; only the Claude Code CLI renews it."""
 
 
 class RefusedError(DirectError):
@@ -74,12 +86,82 @@ class RefusedError(DirectError):
         self.retry_after = retry_after
 
 
-ACCESS_STATUSES = ("needs_access", "keychain_denied")
 REFUSED_STATUSES = ("http_403", "http_429")
 PLAN_HINT = "no subscription access (plan lapsed?); after renewing it can take a while"
-GRANT_HINT = "run 'minitoo-dashboard grant-keychain' and choose Always Allow"
 # The Claude app signs in on its own and never renews the Keychain token Claude Code's CLI keeps.
 EXPIRED_HINT = "Claude Code login token expired; run 'claude' in Terminal once (the Claude app does not renew it)"
+SIGNED_OUT_HINT = "Claude Code login not found in the Keychain; run 'claude' in Terminal and sign in"
+ACCESS_HINT = ("in Terminal run: security find-generic-password -s 'Claude Code-credentials' -w >/dev/null"
+               " and choose Always Allow")
+
+
+@dataclass
+class Login:
+    token: str = field(repr=False)
+    expires_at: Optional[float]
+
+
+def read_login(run: Callable[..., Any] = subprocess.run, timeout: float = KEYCHAIN_TIMEOUT) -> Login:
+    """Claude Code's login, read by `security`: Claude Code writes the item through it, so it needs no grant."""
+    try:
+        result = run([SECURITY, "find-generic-password", "-s", SERVICE, "-w"],
+                     capture_output=True, text=True, timeout=timeout)
+    except subprocess.TimeoutExpired:  # run() has killed it, and with it the prompt's requester
+        raise KeychainAccessError(f"reading the Keychain timed out (a prompt?); {ACCESS_HINT}")
+    except OSError as exc:
+        raise DirectError(f"security did not run: {exc}")
+    if result.returncode == NOT_FOUND:
+        raise DirectError(SIGNED_OUT_HINT)
+    if result.returncode != 0:
+        raise KeychainAccessError(f"security exited {result.returncode}; {ACCESS_HINT}")
+    try:
+        oauth = json.loads(result.stdout)["claudeAiOauth"]
+        token, expires = oauth["accessToken"], oauth.get("expiresAt")
+    except (ValueError, KeyError, TypeError, AttributeError):
+        raise DirectError("unexpected Keychain item format")
+    if not isinstance(token, str) or not token:
+        raise DirectError("unexpected Keychain item format")
+    return Login(token, expires / 1000 if isinstance(expires, (int, float)) else None)
+
+
+def _error_detail(body: bytes) -> Optional[str]:
+    """The API's {"error": {"type", "message"}}; holds no credentials, shortened for log and `status`."""
+    try:
+        error = json.loads(body)["error"]
+        text = ": ".join(str(error[k]) for k in ("type", "message") if error.get(k))
+    except (ValueError, KeyError, TypeError, AttributeError):
+        return None
+    return text[:200] or None
+
+
+def request_usage(token: str, timeout: float = 15, urlopen: Callable[..., Any] = urllib.request.urlopen) -> dict:
+    """One usage request. The token goes only into the header; the result never contains it."""
+    request = urllib.request.Request(USAGE_URL, headers={
+        "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "minitoo-dashboard"})
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            body = json.loads(response.read().decode("utf-8"))
+    except urllib.error.HTTPError as exc:
+        try:
+            raw = exc.read()
+        except OSError:
+            raw = b""
+        out: dict = {"status": f"http_{exc.code}",
+                     "detail": _error_detail(raw) or ("token rejected" if exc.code == 401 else "unexpected HTTP status")}
+        try:
+            retry = float((exc.headers or {}).get("Retry-After") or 0)
+        except ValueError:  # an HTTP date: fall back to the daemon's own back-off
+            retry = 0
+        if retry > 0:
+            out["retry_after"] = retry
+        return out
+    except (urllib.error.URLError, OSError) as exc:  # no network, DNS, timeouts
+        return {"status": "network", "detail": str(getattr(exc, "reason", exc))[:200]}
+    except ValueError:
+        return {"status": "format", "detail": "response is not JSON"}
+    if not isinstance(body, dict):
+        return {"status": "format", "detail": "response is not a JSON object"}
+    return {"status": "ok", **{key: body[key] for key in WINDOWS if key in body}}
 
 
 def iso_epoch(value: Any) -> Optional[float]:
@@ -92,22 +174,18 @@ def iso_epoch(value: Any) -> Optional[float]:
 
 
 def parse_direct(data: Any, now: float) -> dict:
-    """Turn usage-helper output into the same cache record the status line writes."""
+    """Turn a usage result into the same cache record the status line writes."""
     if not isinstance(data, dict):
-        raise DirectError("usage-helper returned no JSON object")
-    if data.get("status") in ACCESS_STATUSES:
-        raise KeychainAccessError(f"usage-helper: {data.get('detail') or 'no Keychain access'}; {GRANT_HINT}")
+        raise DirectError("Claude usage: no JSON object")
     if data.get("status") in REFUSED_STATUSES:
         retry = data.get("retry_after")
         retry = float(retry) if isinstance(retry, (int, float)) and retry > 0 else None
-        message = f"usage-helper: {data['status']} {data.get('detail', '')}".strip()
+        message = f"Claude usage: {data['status']} {data.get('detail', '')}".strip()
         if data["status"] == "http_403":
             message += f"; {PLAN_HINT}"
         raise RefusedError(message, retry)
-    if data.get("status") == "expired":
-        raise DirectError(f"usage-helper: {EXPIRED_HINT}")
     if data.get("status") != "ok":
-        raise DirectError(f"usage-helper: {data.get('status', 'error')} {data.get('detail', '')}".strip())
+        raise DirectError(f"Claude usage: {data.get('status', 'error')} {data.get('detail', '')}".strip())
     record: dict = {"captured_at": now, "source": "direct"}
     for key in WINDOWS:
         window = data.get(key)
@@ -121,16 +199,13 @@ def parse_direct(data: Any, now: float) -> dict:
     return record
 
 
-def fetch_direct(helper: Path, now: float, run: Callable[..., Any] = subprocess.run, timeout: float = 30,
-                 interactive: bool = False) -> dict:
-    """Run usage-helper. Only `interactive` lets macOS show the Keychain prompt; the daemon never does."""
-    cmd = [str(helper), "--interactive"] if interactive else [str(helper)]
-    try:
-        result = run(cmd, capture_output=True, text=True, timeout=timeout)
-    except (OSError, subprocess.TimeoutExpired) as exc:
-        raise DirectError(f"usage-helper did not run: {exc}")
-    try:
-        data = json.loads(result.stdout)
-    except ValueError:
-        raise DirectError(f"usage-helper exited {result.returncode} without JSON")
+def fetch_direct(now: float, read: Callable[[], Login] = read_login,
+                 request: Callable[[str], dict] = request_usage) -> dict:
+    """Direct Claude limits: Keychain login → usage endpoint → cache record. Never prompts, never refreshes."""
+    login = read()
+    if login.expires_at is not None and login.expires_at <= now:
+        raise TokenExpiredError(f"Claude usage: {EXPIRED_HINT}")
+    data = request(login.token)
+    if isinstance(data, dict) and data.get("status") == "http_401":
+        raise TokenExpiredError(f"Claude usage: http_401 {data.get('detail', '')}; {EXPIRED_HINT}")
     return parse_direct(data, now)

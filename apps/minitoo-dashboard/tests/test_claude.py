@@ -1,6 +1,9 @@
+import io
 import json
 import os
 import subprocess
+import urllib.error
+from email.message import Message
 import tempfile
 import unittest
 from pathlib import Path
@@ -76,18 +79,6 @@ class DirectUsageTest(unittest.TestCase):
             claude.parse_direct({"status": "expired"}, 0)
         self.assertIn("expired", str(ctx.exception))
 
-    def test_expired_names_the_terminal_command(self):
-        # The Claude app signs in on its own; only `claude` in Terminal renews this token.
-        with self.assertRaises(claude.DirectError) as ctx:
-            claude.parse_direct({"status": "expired", "detail": "token expired"}, 0)
-        self.assertIn("run 'claude' in Terminal", str(ctx.exception))
-
-    def test_keychain_access_statuses_raise_access_error(self):
-        for status in ("needs_access", "keychain_denied"):
-            with self.assertRaises(claude.KeychainAccessError) as ctx:
-                claude.parse_direct({"status": status}, 0)
-            self.assertIn("minitoo-dashboard grant-keychain", str(ctx.exception))
-
     def test_rate_limit_carries_retry_after(self):
         with self.assertRaises(claude.RefusedError) as ctx:
             claude.parse_direct({"status": "http_429", "detail": "rate_limit_error: slow down", "retry_after": 120}, 0)
@@ -109,31 +100,162 @@ class DirectUsageTest(unittest.TestCase):
                 "seven_day": self.HELPER_OK["seven_day"]}
         self.assertNotIn("five_hour", claude.parse_direct(data, 0))
 
-    def test_fetch_runs_helper_and_parses(self):
-        import subprocess as sp
-        calls = []
 
+SECRET = "sk-ant-oat01-SECRET"
+
+
+def keychain(stdout="", code=0, calls=None):
+    def run(cmd, **kw):
+        if calls is not None:
+            calls.append((cmd, kw.get("timeout")))
+        return subprocess.CompletedProcess(cmd, code, stdout, "")
+    return run
+
+
+def item(expires_ms=None, token=SECRET):
+    oauth = {"accessToken": token, "refreshToken": "r"}
+    if expires_ms is not None:
+        oauth["expiresAt"] = expires_ms
+    return json.dumps({"claudeAiOauth": oauth, "mcpOAuth": {}})
+
+
+class FakeResponse:
+    def __init__(self, body: bytes):
+        self.body = body
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *exc):
+        return False
+
+    def read(self):
+        return self.body
+
+
+def http_error(code, body=b"", retry_after=None):
+    headers = Message()
+    if retry_after is not None:
+        headers["Retry-After"] = retry_after
+    return urllib.error.HTTPError(claude.USAGE_URL, code, "x", headers, io.BytesIO(body))
+
+
+class ReadLoginTest(unittest.TestCase):
+    def test_runs_security_with_timeout_and_parses(self):
+        calls = []
+        login = claude.read_login(run=keychain(item(1_700_000_000_000), calls=calls))
+        self.assertEqual(calls, [(["/usr/bin/security", "find-generic-password", "-s",
+                                   "Claude Code-credentials", "-w"], 10)])
+        self.assertEqual(login.token, SECRET)
+        self.assertEqual(login.expires_at, 1_700_000_000.0)
+        self.assertNotIn(SECRET, repr(login))
+
+    def test_missing_expiry_is_none(self):
+        self.assertIsNone(claude.read_login(run=keychain(item())).expires_at)
+
+    def test_item_not_found_says_sign_in(self):
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.read_login(run=keychain(code=44))
+        self.assertNotIsInstance(ctx.exception, claude.KeychainAccessError)
+        self.assertIn("run 'claude' in Terminal", str(ctx.exception))
+
+    def test_timeout_is_keychain_access(self):
         def run(cmd, **kw):
-            calls.append(cmd)
-            return sp.CompletedProcess(cmd, 0, json.dumps(self.HELPER_OK), "")
-        rec = claude.fetch_direct(Path("/x/usage-helper"), 5.0, run=run)
-        self.assertEqual(calls, [["/x/usage-helper"]])
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+        with self.assertRaises(claude.KeychainAccessError):
+            claude.read_login(run=run)
+
+    def test_other_exit_is_keychain_access(self):
+        with self.assertRaises(claude.KeychainAccessError) as ctx:
+            claude.read_login(run=keychain(code=51))
+        self.assertIn("Always Allow", str(ctx.exception))
+
+    def test_item_without_claude_login_is_format_error(self):
+        for stdout in ('{"mcpOAuth": {}}', "not json", "[]", '{"claudeAiOauth": {"accessToken": ""}}'):
+            with self.assertRaises(claude.DirectError) as ctx:
+                claude.read_login(run=keychain(stdout))
+            self.assertIn("format", str(ctx.exception))
+
+
+class RequestUsageTest(unittest.TestCase):
+    def test_ok_sends_headers_and_returns_windows(self):
+        seen = []
+
+        def urlopen(request, timeout):
+            seen.append((request.full_url, request.get_header("Authorization"),
+                         request.get_header("Anthropic-beta"), timeout))
+            body = {"five_hour": {"utilization": 5.0, "resets_at": "2026-10-08T12:00:00+00:00"},
+                    "seven_day": {"utilization": 9.0, "resets_at": None}, "extra": 1}
+            return FakeResponse(json.dumps(body).encode())
+        data = claude.request_usage(SECRET, urlopen=urlopen)
+        self.assertEqual(seen, [(claude.USAGE_URL, f"Bearer {SECRET}", "oauth-2025-04-20", 15)])
+        self.assertEqual(data["status"], "ok")
+        self.assertEqual(data["five_hour"]["utilization"], 5.0)
+        self.assertNotIn("extra", data)
+
+    def test_http_error_carries_detail_and_retry_after(self):
+        def urlopen(request, timeout):
+            raise http_error(429, b'{"type":"error","error":{"type":"rate_limit_error","message":"slow"}}', "120")
+        data = claude.request_usage(SECRET, urlopen=urlopen)
+        self.assertEqual(data, {"status": "http_429", "detail": "rate_limit_error: slow", "retry_after": 120.0})
+
+    def test_retry_after_date_is_ignored(self):
+        def urlopen(request, timeout):
+            raise http_error(429, b"", "Wed, 21 Oct 2026 07:28:00 GMT")
+        self.assertNotIn("retry_after", claude.request_usage(SECRET, urlopen=urlopen))
+
+    def test_long_error_message_is_shortened(self):
+        body = json.dumps({"error": {"type": "x", "message": "m" * 500}}).encode()
+
+        def urlopen(request, timeout):
+            raise http_error(500, body)
+        self.assertEqual(len(claude.request_usage(SECRET, urlopen=urlopen)["detail"]), 200)
+
+    def test_network_and_bad_json(self):
+        def offline(request, timeout):
+            raise urllib.error.URLError("no route")
+        self.assertEqual(claude.request_usage(SECRET, urlopen=offline)["status"], "network")
+
+        def slow(request, timeout):
+            raise TimeoutError("timed out")
+        self.assertEqual(claude.request_usage(SECRET, urlopen=slow)["status"], "network")
+        garbage = claude.request_usage(SECRET, urlopen=lambda r, timeout: FakeResponse(b"<html>"))
+        self.assertEqual(garbage["status"], "format")
+
+
+class FetchDirectTest(unittest.TestCase):
+    OK = DirectUsageTest.HELPER_OK
+
+    def login(self, expires_at=None):
+        return lambda: claude.Login(SECRET, expires_at)
+
+    def test_valid_token_is_requested_and_parsed(self):
+        tokens = []
+        rec = claude.fetch_direct(100.0, read=self.login(200.0),
+                                  request=lambda token: tokens.append(token) or self.OK)
+        self.assertEqual(tokens, [SECRET])
+        self.assertEqual(rec["source"], "direct")
         self.assertEqual(rec["five_hour"]["used_percentage"], 62.0)
 
-    def test_fetch_interactive_passes_flag(self):
-        import subprocess as sp
-        calls = []
+    def test_expired_token_is_not_sent(self):
+        tokens = []
+        with self.assertRaises(claude.TokenExpiredError) as ctx:
+            claude.fetch_direct(300.0, read=self.login(200.0), request=lambda token: tokens.append(token))
+        self.assertEqual(tokens, [])
+        self.assertIn("run 'claude' in Terminal", str(ctx.exception))
 
-        def run(cmd, **kw):
-            calls.append(cmd)
-            return sp.CompletedProcess(cmd, 0, json.dumps(self.HELPER_OK), "")
-        claude.fetch_direct(Path("/x/usage-helper"), 5.0, run=run, interactive=True)
-        self.assertEqual(calls, [["/x/usage-helper", "--interactive"]])
+    def test_rejected_token_reads_as_expired(self):
+        with self.assertRaises(claude.TokenExpiredError):
+            claude.fetch_direct(100.0, read=self.login(None),
+                                request=lambda token: {"status": "http_401", "detail": "token rejected"})
 
-    def test_fetch_bad_output_raises(self):
-        import subprocess as sp
-        with self.assertRaises(claude.DirectError):
-            claude.fetch_direct(Path("/x"), 0, run=lambda cmd, **kw: sp.CompletedProcess(cmd, 1, "garbage", ""))
+    def test_errors_never_contain_the_token(self):
+        cases = [lambda t: {"status": "http_401", "detail": "x"}, lambda t: {"status": "network", "detail": "x"},
+                 lambda t: {"status": "http_429", "detail": "x"}]
+        for request in cases:
+            with self.assertRaises(claude.DirectError) as ctx:
+                claude.fetch_direct(100.0, read=self.login(None), request=request)
+            self.assertNotIn(SECRET, str(ctx.exception))
 
 
 class StatuslineScriptTest(unittest.TestCase):

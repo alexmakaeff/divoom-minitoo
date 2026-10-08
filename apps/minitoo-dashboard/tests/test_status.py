@@ -55,8 +55,8 @@ class ReadSessionsTest(unittest.TestCase):
 
 
 class HookScriptTest(unittest.TestCase):
-    def run_hook(self, home, state, payload, *extra):
-        env = dict(os.environ, MINITOO_DASHBOARD_HOME=home)
+    def run_hook(self, home, state, payload, *extra, env=None):
+        env = dict(os.environ, MINITOO_DASHBOARD_HOME=home, **(env or {}))
         return subprocess.run(["bash", str(HOOK), state, *extra], input=payload, text=True,
                               env=env, capture_output=True, timeout=5)
 
@@ -74,6 +74,31 @@ class HookScriptTest(unittest.TestCase):
             self.assertEqual((state, agent), ("alerting", "codex"))
             self.run_hook(home, "chilling", '{"session_id":"c2"}', "bogus agent")
             self.assertEqual(len((Path(home) / "sessions" / "c2").read_text().split()), 2)
+
+    def codex_home(self, root, sid, reviewer):
+        day = Path(root) / "sessions" / "2026" / "10" / "07"
+        day.mkdir(parents=True)
+        lines = ['{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":'
+                 '{"approval_policy":"on-request","approvals_reviewer":"user"}}}',
+                 '{"type":"event_msg","payload":{"type":"thread_settings_applied","thread_settings":'
+                 f'{{"approval_policy":"on-request","approvals_reviewer":"{reviewer}"}}}}}}']
+        (day / f"rollout-2026-10-07T12-14-20-{sid}.jsonl").write_text("\n".join(lines) + "\n")
+        return str(Path(root))
+
+    def test_codex_auto_review_is_not_an_alert(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as codex:
+            sid = "01a1156d-821d-7993-a8b0-5146a2cbfef4"
+            env = {"CODEX_HOME": self.codex_home(codex, sid, "auto_review")}
+            self.run_hook(home, "chilling", f'{{"session_id":"{sid}"}}', "codex", env=env)
+            self.run_hook(home, "alerting", f'{{"session_id":"{sid}"}}', "codex", env=env)
+            self.assertTrue((Path(home) / "sessions" / sid).read_text().startswith("chilling "))
+
+    def test_codex_user_review_alerts(self):
+        with tempfile.TemporaryDirectory() as home, tempfile.TemporaryDirectory() as codex:
+            sid = "01a11b82-16b8-78e3-994f-3e3c82a29873"
+            env = {"CODEX_HOME": self.codex_home(codex, sid, "user")}
+            self.run_hook(home, "alerting", f'{{"session_id":"{sid}"}}', "codex", env=env)
+            self.assertTrue((Path(home) / "sessions" / sid).read_text().startswith("alerting "))
 
     def test_end_removes_session(self):
         with tempfile.TemporaryDirectory() as home:

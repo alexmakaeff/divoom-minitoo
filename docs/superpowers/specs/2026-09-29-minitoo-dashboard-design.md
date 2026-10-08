@@ -330,6 +330,12 @@ Codex (0.158+, also inside ChatGPT.app) has Claude-style lifecycle hooks in
 - Codex hooks pass `codex` as a second argument; the session file becomes
   `<state> <ts> codex` (old two-field files read as Claude). `status.alert_agent`
   picks the newest live alert; the daemon re-selects when that agent changes.
+- Auto-review (2026-10-08, false alert seen by the owner): Codex fires
+  `PermissionRequest` also when the thread's `approvals_reviewer` is
+  `auto_review`; its guardian decides and nobody is asked. The hook payload does
+  not say so, so `dashboard-hook.sh` reads the last `"approvals_reviewer"` from
+  the thread's rollout (`$CODEX_HOME/sessions/**/rollout-*-<session_id>.jsonl`,
+  ~0.1 s) and skips the alert for `auto_review`. No rollout found → alert.
 
 ### Amendment (2026-10-08): Claude token without Keychain grant
 

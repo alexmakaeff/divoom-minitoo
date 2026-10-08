@@ -194,6 +194,9 @@ is not supported.
   Clauddy's `install.sh` overwrites the slot: run the script again after it.
   To change the art, edit `assets/make-codex-alert.py`, run it, then upload.
   If both agents are asking, the newest question's face is shown.
+- Chats where Codex's own reviewer approves requests (`approvals_reviewer` =
+  `auto_review`) never ask you, so they do not switch the screen. The hook
+  reads that setting from the chat's log in `~/.codex/sessions`.
 
 Turn it on with `minitoo-dashboard init --codex on` (or `off`); the installer
 asks when it finds `~/.codex`.

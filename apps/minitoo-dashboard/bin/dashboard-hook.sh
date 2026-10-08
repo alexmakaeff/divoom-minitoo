@@ -15,6 +15,14 @@ sid="$(printf '%s' "$input" | sed -n 's/.*"session_id"[[:space:]]*:[[:space:]]*"
 [ -n "$sid" ] || sid="unknown"
 dir="${MINITOO_DASHBOARD_HOME:-$HOME/.minitoo-dashboard}/sessions"
 mkdir -p "$dir" 2>/dev/null || exit 0
+# Codex fires PermissionRequest also when its own reviewer (approvals_reviewer=auto_review)
+# decides; nobody is asked then. The thread's rollout log has the latest setting.
+if [ "$state" = alerting ] && [ -n "$agent" ]; then
+  rollout="$(find "${CODEX_HOME:-$HOME/.codex}/sessions" -name "rollout-*-$sid.jsonl" -print 2>/dev/null | head -n 1)"
+  if [ -n "$rollout" ] && [ "$(grep -o '"approvals_reviewer":"[a-z_]*"' "$rollout" 2>/dev/null | tail -n 1)" = '"approvals_reviewer":"auto_review"' ]; then
+    exit 0
+  fi
+fi
 if [ "$state" = "end" ]; then
   rm -f "$dir/$sid"
   exit 0

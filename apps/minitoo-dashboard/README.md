@@ -99,7 +99,6 @@ minitoo-dashboard preview          # render the current screen to PNG
 minitoo-dashboard pause            # release the device (e.g. for the phone app)
 minitoo-dashboard resume
 minitoo-dashboard logs
-minitoo-dashboard grant-keychain   # CLAUDE_LIMITS=direct: allow Keychain access (shows the prompt)
 minitoo-dashboard refresh-limits   # CLAUDE_LIMITS=direct: check Claude limits now
 ```
 
@@ -133,21 +132,20 @@ every second.
   needs no credentials, but only the terminal `claude` CLI runs status line
   commands. The Claude desktop app and the VS Code extension do not, so while
   you use those the numbers go stale and show "as of HH:MM".
-- **`direct` (opt-in).** Every 5 minutes a small helper, `usage-helper`, reads
-  Claude Code's login from the macOS Keychain and asks the same endpoint that
-  Claude Code's `/usage` uses. Only percentages and reset times leave the
-  helper; the token is never printed, stored or refreshed. The installer (or
-  `minitoo-dashboard grant-keychain`) runs it once in the foreground, and macOS
-  asks whether `usage-helper` may use the "Claude Code-credentials" item.
-  Choose *Always Allow*: the grant covers only this helper. The background
-  daemon never shows that prompt: if access is lost, it shows one macOS
-  notification, falls back to the status line, retries every 30 minutes and
-  `status` tells you to run `grant-keychain`. Be aware that:
+- **`direct` (opt-in).** Every 5 minutes the dashboard reads Claude Code's
+  login from the macOS Keychain with `/usr/bin/security` and asks the same
+  endpoint that Claude Code's `/usage` uses. Claude Code writes its login item
+  through `security`, so no Keychain grant or prompt is needed. Only
+  percentages and reset times are kept; the token is never printed, stored or
+  refreshed. If the Keychain ever asks about `security`, the dashboard stops
+  waiting after 10 s, shows one macOS notification, falls back to the status
+  line, retries every 30 minutes and `status` says what to run. Be aware that:
   - the endpoint is **undocumented** and may change or disappear at any time;
   - using a subscription token outside Claude Code is a grey area in
     Anthropic's terms;
-  - an expired token is skipped, not refreshed. It renews the next time Claude
-    Code runs.
+  - an expired token is skipped, not refreshed. Only the terminal `claude`
+    CLI renews it; the Claude desktop app signs in on its own. Run `claude`
+    in Terminal once and limits come back.
 
   If the endpoint refuses (403 without an active subscription, 429 rate
   limited), the daemon waits 10, 20, 40, then 60 minutes between attempts
@@ -156,7 +154,6 @@ every second.
   If a direct request fails, the dashboard keeps the last numbers, the status
   line still updates them, and `minitoo-dashboard status` shows the error. To
   switch, run `minitoo-dashboard init --claude-limits direct` (or `statusline`).
-  After rebuilding `usage-helper`, run `minitoo-dashboard grant-keychain` again.
 
 ## Where Codex limits come from
 
@@ -259,10 +256,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   Claude desktop app's Code tab and the VS Code extension do not run status
   line commands, so limits refresh only while you use the terminal CLI, unless you
   enable `CLAUDE_LIMITS=direct`.
-- **"Keychain access needed" in `status`.** macOS dropped the helper's
-  Keychain grant. It happens after rebuilding `usage-helper` and can happen
-  when Claude Code rewrites its login item. Run `minitoo-dashboard grant-keychain`
-  and choose *Always Allow*.
+- **"token expired; run 'claude' in Terminal" in `status`.** Start `claude` in
+  Terminal once (any prompt, or just open and quit it); it renews the login.
+- **Keychain error in `status`.** The Keychain refused `/usr/bin/security`.
+  Run the command `status` shows and choose *Always Allow*.
 - **`http_403` or `http_429` in `status`.** The endpoint refused: usually the
   subscription lapsed (403), and repeated refusals get rate limited (429). After
   renewing, run `minitoo-dashboard refresh-limits`; if it still fails, start

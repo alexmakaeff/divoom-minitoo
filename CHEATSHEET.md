@@ -39,15 +39,16 @@
 /Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex
 ```
 
-## Если пришло уведомление «Нет доступа к Keychain»
+## Если лимиты Claude не обновляются (истёк вход или ошибка Keychain)
 
 ```bash
-minitoo-dashboard grant-keychain
+minitoo-dashboard status
 ```
 
-Появится одно окно macOS: введите пароль и нажмите «Разрешать всегда». Фоновый
-дашборд сам такое окно никогда не открывает. Пока доступа нет, лимиты Claude
-обновляются только из status line (во время работы в терминальном `claude`).
+- «token expired; run 'claude' in Terminal» — откройте `claude` в Терминале
+  один раз: только он продлевает вход (приложение Claude — нет).
+- Ошибка Keychain — выполните команду, которую показывает `status`, и нажмите
+  «Разрешать всегда».
 
 ## Если лимиты Claude не обновляются (`http_403` / `http_429` в статусе)
 
@@ -112,14 +113,6 @@ grep -h "device restarted" ~/.minitoo-dashboard/dashboard.log*
 cd ~/Claude\ code/Minitoo
 git pull fork main
 launchctl kickstart -k gui/$(id -u)/local.minitoo.dashboard
-```
-
-Если менялся `usage-helper` (файл `apps/minitoo-dashboard/usage-helper/UsageHelper.swift`),
-пересоберите его и заново выдайте доступ:
-
-```bash
-~/Claude\ code/Minitoo/apps/minitoo-dashboard/usage-helper/build.sh
-minitoo-dashboard grant-keychain
 ```
 
 Проверить, что всё в порядке (тесты):

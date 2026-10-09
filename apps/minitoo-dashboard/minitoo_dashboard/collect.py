@@ -13,6 +13,7 @@ class Sources:
                  fetch_events: Optional[Callable[..., Any]] = None,
                  helper_app: Optional[Path] = None,
                  fetch_claude: Optional[Callable[[float], dict]] = None,
+                 renew_claude: Optional[Callable[[], None]] = None,
                  codex_root: Optional[Path] = None):
         self.cache_dir = Path(cache_dir)
         self.sessions_dir = Path(sessions_dir)
@@ -20,6 +21,7 @@ class Sources:
         self.fetch_events = fetch_events or calendar.fetch_events
         self.helper_app = helper_app or calendar.HELPER_APP
         self.fetch_claude = fetch_claude or claude.fetch_direct
+        self.renew_claude_login = renew_claude or claude.renew_login
         self.codex_root = Path(codex_root or paths.codex_sessions_dir())
         self.codex_scanner = codex.Scanner(self.codex_root)
 
@@ -42,6 +44,9 @@ class Sources:
 
     def refresh_claude(self, now: float) -> None:
         store.write_json_atomic(self.cache_dir / "claude.json", self.fetch_claude(now))
+
+    def renew_claude(self) -> None:
+        self.renew_claude_login()
 
     def refresh_codex(self, now: float) -> None:
         record, working = self.codex_scanner.scan(now)

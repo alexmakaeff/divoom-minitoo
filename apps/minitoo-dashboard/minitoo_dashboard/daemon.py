@@ -11,7 +11,7 @@ from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
 from .limit_alerts import Crossing, LimitAlerts, Reset
-from .sources.claude import KeychainAccessError, RefusedError
+from .sources.claude import KeychainAccessError, RefusedError, TokenExpiredError
 
 log = logging.getLogger("minitoo_dashboard")
 log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches the file handler
@@ -22,6 +22,7 @@ CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
 CLAUDE_ACCESS_RETRY = 1800  # Keychain refused `security`: only the owner can fix it (see `status`)
 CLAUDE_REFUSED_BACKOFF = (600, 1200, 2400, 3600)  # 403/429: polling harder only prolongs a 429
+CLAUDE_RENEW_EVERY = 3600  # expired token: let `claude mcp list` renew it at most this often
 CODEX_EVERY = 5  # local log reads only
 CODEX_LOG_EVERY = 600  # repeat an unchanged Codex error in the log at most this often
 WAKE_JUMP = 30
@@ -112,6 +113,7 @@ class Dashboard:
         self.limits_checked_at: Optional[float] = None
         self.claude_hold = 0.0  # refused by the endpoint: no request before this, even after wake
         self.claude_refusals = 0
+        self.next_renew = 0.0  # no `claude mcp list` before this
         self.codex_error: Optional[str] = None
         self.codex_error_logged = 0.0
         self.weather_key: Any = None
@@ -194,7 +196,7 @@ class Dashboard:
         request = self.home / "refresh-limits"
         if request.exists():  # `minitoo-dashboard refresh-limits`: check now, whatever the backoff
             request.unlink(missing_ok=True)
-            self.next_claude = self.claude_hold = 0.0
+            self.next_claude = self.claude_hold = self.next_renew = 0.0
         if cfg.claude_limits == "direct" and now >= self.next_claude:
             self.next_claude = now + CLAUDE_EVERY
             try:
@@ -217,6 +219,16 @@ class Dashboard:
                     if not self.keychain_lost:
                         self.keychain_lost = True
                         self._notify(cfg, "keychain_body")
+                elif isinstance(exc, TokenExpiredError) and now >= self.next_renew:
+                    self.next_renew = now + CLAUDE_RENEW_EVERY
+                    try:
+                        self.sources.renew_claude()
+                    except Exception as renew_exc:
+                        log.warning("direct Claude limits failed: %s; renewing via 'claude mcp list' failed: %s",
+                                    error, renew_exc)
+                    else:
+                        log.info("Claude login token expired; renewed it via 'claude mcp list', checking again")
+                        self.next_claude = now  # re-check on the next tick
                 else:
                     log.warning("direct Claude limits failed: %s", error)
                 self.limits_error, self.limits_error_at = error, now

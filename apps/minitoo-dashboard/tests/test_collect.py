@@ -27,6 +27,13 @@ class CollectTest(unittest.TestCase):
     def sources(self, **kw):
         return Sources(self.cache, self.sessions, **kw)
 
+    def test_renew_claude_defaults_to_renew_login(self):
+        from minitoo_dashboard.sources import claude
+        self.assertIs(self.sources().renew_claude_login, claude.renew_login)
+        calls = []
+        self.sources(renew_claude=lambda: calls.append(1)).renew_claude()
+        self.assertEqual(calls, [1])
+
     def test_claude_defaults_to_direct_fetch(self):
         from minitoo_dashboard.sources import claude
         self.assertIs(self.sources().fetch_claude, claude.fetch_direct)

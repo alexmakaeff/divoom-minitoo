@@ -46,6 +46,17 @@ class FakeSources:
             from minitoo_dashboard.sources.claude import DirectError
             raise DirectError("expired")
 
+    renew_calls = 0
+    renew_error = None
+    on_renew = None
+
+    def renew_claude(self):
+        self.renew_calls += 1
+        if self.on_renew:
+            self.on_renew()
+        if self.renew_error:
+            raise self.renew_error
+
     codex_calls = 0
     codex_fails = None
 
@@ -239,6 +250,65 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T)
         self.assertIn("expired", store.read_json(self.home / "state.json")["limits_error"])
         self.assertEqual(len(self.sends()), 1)
+
+    DIRECT = Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct")
+
+    def expired(self):
+        from minitoo_dashboard.sources.claude import TokenExpiredError
+        return TokenExpiredError("Claude usage: token expired; run 'claude' in Terminal once")
+
+    def test_expired_token_is_renewed_and_rechecked(self):
+        self.sources.claude_error = self.expired()
+        self.sources.on_renew = lambda: setattr(self.sources, "claude_error", None)
+        dash = self.make(cfg=self.DIRECT)
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            dash.tick(T)
+            dash.tick(T + 1)
+        self.assertEqual((self.sources.renew_calls, self.sources.claude_calls), (1, 2))
+        self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
+        self.assertTrue(any("renewed" in line for line in logs.output))
+
+    def test_other_errors_never_renew(self):
+        from minitoo_dashboard.sources.claude import DirectError, KeychainAccessError, RefusedError
+        dash = self.make(cfg=self.DIRECT)
+        for i, error in enumerate([DirectError("network"), KeychainAccessError("k"), RefusedError("r", None)]):
+            self.sources.claude_error = error
+            dash.next_claude = dash.claude_hold = 0.0
+            dash.tick(T + 10 * i)
+        self.assertEqual(self.sources.renew_calls, 0)
+
+    def test_failed_renewal_waits_an_hour(self):
+        from minitoo_dashboard.sources.claude import DirectError
+        self.sources.claude_error = self.expired()
+        self.sources.renew_error = DirectError("claude CLI not found; cannot renew the login")
+        dash = self.make(cfg=self.DIRECT)
+        with self.assertLogs("minitoo_dashboard", "INFO") as logs:
+            for t in range(0, 3600, 10):
+                dash.tick(T + t)
+        self.assertEqual(self.sources.renew_calls, 1)
+        self.assertEqual(self.sources.claude_calls, 12)  # ordinary 5-min checks continue
+        self.assertTrue(any("not found" in line for line in logs.output))
+        self.assertIn("run 'claude' in Terminal", store.read_json(self.home / "state.json")["limits_error"])
+        dash.tick(T + 3600)
+        self.assertEqual(self.sources.renew_calls, 2)
+
+    def test_renewal_that_did_not_help_is_not_repeated(self):
+        self.sources.claude_error = self.expired()  # renew "succeeds" but the token stays expired
+        dash = self.make(cfg=self.DIRECT)
+        for t in range(0, 1800, 1):
+            dash.tick(T + t)
+        self.assertEqual(self.sources.renew_calls, 1)
+        self.assertEqual(self.sources.claude_calls, 2 + 5)  # T, re-check at T+1, then every 5 min
+
+    def test_refresh_limits_lifts_renewal_hold(self):
+        from minitoo_dashboard.sources.claude import DirectError
+        self.sources.claude_error = self.expired()
+        self.sources.renew_error = DirectError("exited 1")
+        dash = self.make(cfg=self.DIRECT)
+        dash.tick(T)
+        (self.home / "refresh-limits").touch()
+        dash.tick(T + 10)
+        self.assertEqual(self.sources.renew_calls, 2)
 
     def test_keychain_access_error_backs_off_and_logs_once(self):
         from minitoo_dashboard.sources.claude import KeychainAccessError

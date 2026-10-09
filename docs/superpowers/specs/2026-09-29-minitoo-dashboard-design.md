@@ -373,7 +373,10 @@ Replaces the 2026-10-02 `usage-helper` grant model:
   `cwd=$HOME`, output discarded, 60 s timeout; `claude` is looked up on the
   PATH and in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`. Success →
   limits are checked again on the next tick; failure → one warning. The hour
-  hold applies either way; `refresh-limits` lifts it. When renewal fails or
+  hold applies either way; `refresh-limits` lifts it. After sleep/wake the
+  renewal waits 60 s for the network (the expired check is local and would
+  otherwise spend the hour offline). It runs in its own process group, killed
+  as a whole on timeout, so stdio MCP servers it started do not linger. When renewal fails or
   does not help, the error still says to run `claude` in Terminal once.
 - Check result (2026-10-08 19:08, Claude Code 2.1.285, token expired 18:44):
   `claude auth status` does **not** renew (item unchanged). `claude mcp list`

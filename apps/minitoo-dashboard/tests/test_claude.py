@@ -258,6 +258,63 @@ class FetchDirectTest(unittest.TestCase):
             self.assertNotIn(SECRET, str(ctx.exception))
 
 
+class RenewLoginTest(unittest.TestCase):
+    ENV = {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u", "PATH": "/usr/bin:/bin",
+           "CLAUDE_CODE_OAUTH_TOKEN": "x", "ANTHROPIC_BASE_URL": "y", "CLAUDECODE": "1"}
+
+    def test_find_claude_looks_past_launchd_path(self):
+        seen = []
+
+        def which(name, path=None):
+            seen.append(path)
+            return "/Users/u/.local/bin/claude"
+        self.assertEqual(claude.find_claude(which=which, environ=self.ENV), "/Users/u/.local/bin/claude")
+        self.assertEqual(seen, ["/usr/bin:/bin:/Users/u/.local/bin:/opt/homebrew/bin:/usr/local/bin"])
+
+    def test_find_claude_none_when_missing(self):
+        self.assertIsNone(claude.find_claude(which=lambda name, path=None: None, environ=self.ENV))
+
+    def test_runs_mcp_list_in_clean_env(self):
+        calls = []
+
+        def run(cmd, **kw):
+            calls.append((cmd, kw))
+            return subprocess.CompletedProcess(cmd, 0)
+        claude.renew_login(run=run, find=lambda: "/Users/u/.local/bin/claude", environ=self.ENV)
+        (cmd, kw), = calls
+        self.assertEqual(cmd, ["/Users/u/.local/bin/claude", "mcp", "list"])
+        self.assertEqual(kw["env"], {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u", "TERM": "dumb",
+                                     "PATH": "/Users/u/.local/bin:/usr/bin:/bin:/usr/sbin:/sbin"})
+        self.assertEqual(kw["cwd"], "/Users/u")
+        self.assertEqual(kw["timeout"], 60)
+        for stream in ("stdin", "stdout", "stderr"):
+            self.assertEqual(kw[stream], subprocess.DEVNULL)
+
+    def test_missing_cli(self):
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.renew_login(run=None, find=lambda: None, environ=self.ENV)
+        self.assertIn("not found", str(ctx.exception))
+
+    def test_nonzero_exit(self):
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.renew_login(run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1),
+                               find=lambda: "/x/claude", environ=self.ENV)
+        self.assertIn("exited 1", str(ctx.exception))
+
+    def test_timeout(self):
+        def run(cmd, **kw):
+            raise subprocess.TimeoutExpired(cmd, kw["timeout"])
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV)
+        self.assertIn("timed out", str(ctx.exception))
+
+    def test_cannot_start(self):
+        def run(cmd, **kw):
+            raise PermissionError("denied")
+        with self.assertRaises(claude.DirectError):
+            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV)
+
+
 class StatuslineScriptTest(unittest.TestCase):
     def run_script(self, home, payload):
         env = dict(os.environ, MINITOO_DASHBOARD_HOME=home)

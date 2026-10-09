@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import os
+import shutil
 import subprocess
 import urllib.error
 import urllib.request
@@ -209,3 +211,38 @@ def fetch_direct(now: float, read: Callable[[], Login] = read_login,
     if isinstance(data, dict) and data.get("status") == "http_401":
         raise TokenExpiredError(f"Claude usage: http_401 {data.get('detail', '')}; {EXPIRED_HINT}")
     return parse_direct(data, now)
+
+
+RENEW_TIMEOUT = 60  # `mcp list` health-checks every MCP server; a hung one must not stall the daemon long
+SYSTEM_PATH = "/usr/bin:/bin:/usr/sbin:/sbin"  # launchd's PATH
+CLAUDE_DIRS = ("~/.local/bin", "/opt/homebrew/bin", "/usr/local/bin")  # where installers put `claude`
+
+
+def find_claude(which: Callable[..., Optional[str]] = shutil.which, environ: Any = os.environ,
+                home: Optional[str] = None) -> Optional[str]:
+    """The Claude Code CLI, also when launchd's bare PATH does not reach it."""
+    home = home or environ.get("HOME") or os.path.expanduser("~")
+    dirs = [environ.get("PATH", "")] + [d.replace("~", home, 1) for d in CLAUDE_DIRS]
+    return which("claude", path=os.pathsep.join(d for d in dirs if d))
+
+
+def renew_login(run: Callable[..., Any] = subprocess.run, find: Callable[[], Optional[str]] = find_claude,
+                environ: Any = os.environ, timeout: float = RENEW_TIMEOUT) -> None:
+    """Let Claude Code renew its own expired token: `claude mcp list` fetches the account's claude.ai
+    connectors, so the CLI refreshes the login first. No model request, no session, no hooks
+    (checked 2026-10-08). Clean env: the desktop app's CLAUDE_CODE_*/ANTHROPIC_* would switch auth."""
+    path = find()
+    if not path:
+        raise DirectError("claude CLI not found; cannot renew the login")
+    home = environ.get("HOME") or os.path.expanduser("~")
+    env = {"HOME": home, "USER": environ.get("USER", ""), "LOGNAME": environ.get("LOGNAME", ""),
+           "TERM": "dumb", "PATH": f"{os.path.dirname(path)}:{SYSTEM_PATH}"}
+    try:
+        result = run([path, "mcp", "list"], env=env, cwd=home, timeout=timeout,
+                     stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+    except subprocess.TimeoutExpired:
+        raise DirectError(f"'claude mcp list' timed out after {timeout:.0f} s")
+    except OSError as exc:
+        raise DirectError(f"'claude mcp list' did not run: {exc}")
+    if result.returncode != 0:
+        raise DirectError(f"'claude mcp list' exited {result.returncode}")

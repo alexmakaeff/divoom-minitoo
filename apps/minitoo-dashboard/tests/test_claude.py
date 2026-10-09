@@ -5,6 +5,7 @@ import subprocess
 import urllib.error
 from email.message import Message
 import tempfile
+import time
 import unittest
 from pathlib import Path
 
@@ -307,6 +308,33 @@ class RenewLoginTest(unittest.TestCase):
         with self.assertRaises(claude.DirectError) as ctx:
             claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV)
         self.assertIn("timed out", str(ctx.exception))
+
+    def test_timeout_kills_the_whole_process_group(self):
+        # `claude mcp list` starts stdio MCP servers; a hung one must not outlive the timeout.
+        with tempfile.TemporaryDirectory() as tmp:
+            pidfile = Path(tmp) / "pid"
+            with self.assertRaises(subprocess.TimeoutExpired):
+                claude.run_in_group(["/bin/sh", "-c", f"sleep 30 & echo $! > {pidfile}; wait"], timeout=1,
+                                    stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+            grandchild = int(pidfile.read_text())
+        for _ in range(50):
+            try:
+                os.kill(grandchild, 0)
+            except ProcessLookupError:
+                break
+            time.sleep(0.05)
+        else:
+            os.kill(grandchild, 9)
+            self.fail("grandchild survived the timeout")
+
+    def test_run_in_group_returns_exit_code(self):
+        result = claude.run_in_group(["/bin/sh", "-c", "exit 3"], timeout=5, stdin=subprocess.DEVNULL,
+                                     stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.assertEqual(result.returncode, 3)
+
+    def test_renew_uses_run_in_group_by_default(self):
+        import inspect
+        self.assertIs(inspect.signature(claude.renew_login).parameters["run"].default, claude.run_in_group)
 
     def test_cannot_start(self):
         def run(cmd, **kw):

@@ -23,6 +23,7 @@ CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gent
 CLAUDE_ACCESS_RETRY = 1800  # Keychain refused `security`: only the owner can fix it (see `status`)
 CLAUDE_REFUSED_BACKOFF = (600, 1200, 2400, 3600)  # 403/429: polling harder only prolongs a 429
 CLAUDE_RENEW_EVERY = 3600  # expired token: let `claude mcp list` renew it at most this often
+CLAUDE_RENEW_AFTER_WAKE = 60  # Wi-Fi reconnects after wake; renewing offline would waste the hour
 CODEX_EVERY = 5  # local log reads only
 CODEX_LOG_EVERY = 600  # repeat an unchanged Codex error in the log at most this often
 WAKE_JUMP = 30
@@ -144,6 +145,7 @@ class Dashboard:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
             self.next_weather = self.next_calendar = self.next_codex = 0.0
             self.next_claude = self.claude_hold
+            self.next_renew = max(self.next_renew, now + CLAUDE_RENEW_AFTER_WAKE)
             self.last_blob = None
             self.backoff.ok()
             self.reply_check, self.unanswered = None, 0  # a send from before the sleep proves nothing
@@ -229,6 +231,9 @@ class Dashboard:
                     else:
                         log.info("Claude login token expired; renewed it via 'claude mcp list', checking again")
                         self.next_claude = now  # re-check on the next tick
+                elif isinstance(exc, TokenExpiredError) and now < self.next_renew <= now + CLAUDE_RENEW_AFTER_WAKE:
+                    self.next_claude = self.next_renew  # just woke up: renew once the network is back
+                    log.warning("direct Claude limits failed: %s (renewing in %.0f s)", error, self.next_renew - now)
                 else:
                     log.warning("direct Claude limits failed: %s", error)
                 self.limits_error, self.limits_error_at = error, now

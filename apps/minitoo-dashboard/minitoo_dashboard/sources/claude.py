@@ -3,12 +3,13 @@ from __future__ import annotations
 import json
 import os
 import shutil
+import signal
 import subprocess
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
 from datetime import datetime
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 STALE_AFTER = 600
 WINDOWS = ("five_hour", "seven_day")
@@ -226,7 +227,28 @@ def find_claude(which: Callable[..., Optional[str]] = shutil.which, environ: Any
     return which("claude", path=os.pathsep.join(d for d in dirs if d))
 
 
-def renew_login(run: Callable[..., Any] = subprocess.run, find: Callable[[], Optional[str]] = find_claude,
+def run_in_group(cmd: List[str], timeout: float, **kw: Any) -> subprocess.CompletedProcess:
+    """subprocess.run in its own process group: `claude mcp list` starts stdio MCP servers, and a
+    hung one must not outlive the timeout (run() kills only the direct child)."""
+    with subprocess.Popen(cmd, start_new_session=True, **kw) as proc:
+        try:
+            proc.wait(timeout=timeout)
+        except subprocess.TimeoutExpired:
+            _kill_group(proc.pid)
+            proc.wait()
+            raise
+        _kill_group(proc.pid)  # leftovers of a normal exit
+    return subprocess.CompletedProcess(cmd, proc.returncode)
+
+
+def _kill_group(pgid: int) -> None:
+    try:
+        os.killpg(pgid, signal.SIGKILL)
+    except (ProcessLookupError, PermissionError):
+        pass
+
+
+def renew_login(run: Callable[..., Any] = run_in_group, find: Callable[[], Optional[str]] = find_claude,
                 environ: Any = os.environ, timeout: float = RENEW_TIMEOUT) -> None:
     """Let Claude Code renew its own expired token: `claude mcp list` fetches the account's claude.ai
     connectors, so the CLI refreshes the login first. No model request, no session, no hooks

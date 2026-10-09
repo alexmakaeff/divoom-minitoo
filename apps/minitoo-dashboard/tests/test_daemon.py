@@ -300,6 +300,18 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(self.sources.renew_calls, 1)
         self.assertEqual(self.sources.claude_calls, 2 + 5)  # T, re-check at T+1, then every 5 min
 
+    def test_wake_waits_for_the_network_before_renewing(self):
+        dash = self.make(cfg=self.DIRECT)
+        dash.tick(T)  # token valid before sleep
+        self.sources.claude_error = self.expired()  # it expired overnight
+        dash.tick(T + 30000)  # wake: the first tick must not spend the hourly renewal offline
+        self.assertEqual((self.sources.renew_calls, self.sources.claude_calls), (0, 2))
+        for t in range(1, 60):
+            dash.tick(T + 30000 + t)
+        self.assertEqual(self.sources.renew_calls, 0)
+        dash.tick(T + 30060)
+        self.assertEqual((self.sources.renew_calls, self.sources.claude_calls), (1, 3))
+
     def test_refresh_limits_lifts_renewal_hold(self):
         from minitoo_dashboard.sources.claude import DirectError
         self.sources.claude_error = self.expired()

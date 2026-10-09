@@ -143,9 +143,10 @@ every second.
   - the endpoint is **undocumented** and may change or disappear at any time;
   - using a subscription token outside Claude Code is a grey area in
     Anthropic's terms;
-  - an expired token is skipped, not refreshed. Only the terminal `claude`
-    CLI renews it; the Claude desktop app signs in on its own. Run `claude`
-    in Terminal once and limits come back.
+  - the dashboard never refreshes the token itself. When it has expired, the
+    daemon runs `claude mcp list` (at most once an hour), which makes Claude
+    Code renew it; that call also checks your MCP servers. If that fails, run
+    `claude` in Terminal once (the Claude desktop app signs in on its own).
 
   If the endpoint refuses (403 without an active subscription, 429 rate
   limited), the daemon waits 10, 20, 40, then 60 minutes between attempts
@@ -259,8 +260,10 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   Claude desktop app's Code tab and the VS Code extension do not run status
   line commands, so limits refresh only while you use the terminal CLI, unless you
   enable `CLAUDE_LIMITS=direct`.
-- **"token expired; run 'claude' in Terminal" in `status`.** Start `claude` in
-  Terminal once (any prompt, or just open and quit it); it renews the login.
+- **"token expired; run 'claude' in Terminal" in `status`.** The daemon's own
+  renewal (`claude mcp list`, hourly) did not work; the log says why
+  (`minitoo-dashboard logs`). Start `claude` in Terminal once (or run
+  `minitoo-dashboard refresh-limits` to retry the renewal now).
 - **Keychain error in `status`.** The Keychain refused `/usr/bin/security`.
   Run the command `status` shows and choose *Always Allow*.
 - **`http_403` or `http_429` in `status`.** The endpoint refused: usually the

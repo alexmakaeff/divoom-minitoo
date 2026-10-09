@@ -45,8 +45,10 @@
 minitoo-dashboard status
 ```
 
-- «token expired; run 'claude' in Terminal» — откройте `claude` в Терминале
-  один раз: только он продлевает вход (приложение Claude — нет).
+- «token expired; run 'claude' in Terminal» — дашборд сам продлевает вход
+  (раз в час запускает `claude mcp list`), значит, это не сработало. Причина в
+  `minitoo-dashboard logs`. Повторить сразу: `minitoo-dashboard refresh-limits`;
+  или откройте `claude` в Терминале один раз.
 - Ошибка Keychain — выполните команду, которую показывает `status`, и нажмите
   «Разрешать всегда».
 

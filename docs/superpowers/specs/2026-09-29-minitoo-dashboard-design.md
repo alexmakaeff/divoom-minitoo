@@ -368,10 +368,13 @@ Replaces the 2026-10-02 `usage-helper` grant model:
   text and `status` hint say to run `claude` in Terminal.
 - Expired token (`expiresAt` passed): the daemon starts the CLI to renew it,
   at most once an hour, only when `claude` is on the PATH, never while the
-  token is still valid. Which command renews without a model request and
-  without firing the dashboard's own hooks is settled by a check on a really
-  expired token. Until then, and when renewal fails, the error says to run
-  `claude` in Terminal once.
+  token is still valid. It runs `claude mcp list` (see the check result below) with a clean
+  environment (`HOME`, `USER`, `LOGNAME`, `TERM=dumb`, a minimal `PATH`),
+  `cwd=$HOME`, output discarded, 60 s timeout; `claude` is looked up on the
+  PATH and in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`. Success →
+  limits are checked again on the next tick; failure → one warning. The hour
+  hold applies either way; `refresh-limits` lifts it. When renewal fails or
+  does not help, the error still says to run `claude` in Terminal once.
 - Check result (2026-10-08 19:08, Claude Code 2.1.285, token expired 18:44):
   `claude auth status` does **not** renew (item unchanged). `claude mcp list`
   **does**: it fetches the account's claude.ai connectors, so the CLI renews the

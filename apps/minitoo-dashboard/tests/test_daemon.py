@@ -300,6 +300,23 @@ class DashboardTest(unittest.TestCase):
         self.assertEqual(self.sources.renew_calls, 1)
         self.assertEqual(self.sources.claude_calls, 2 + 5)  # T, re-check at T+1, then every 5 min
 
+    def test_offline_renewal_does_not_start_the_hour_hold(self):
+        from minitoo_dashboard.sources.claude import OfflineError
+        self.sources.claude_error = self.expired()
+        self.sources.renew_error = OfflineError("no network")
+        dash = self.make(cfg=self.DIRECT)
+        dash.tick(T)
+        self.assertEqual(self.sources.renew_calls, 1)
+        for t in range(10, 310, 10):  # next ordinary check at T+300: still offline, tries again
+            dash.tick(T + t)
+        self.assertEqual(self.sources.renew_calls, 2)
+        self.sources.renew_error = None
+        self.sources.on_renew = lambda: setattr(self.sources, "claude_error", None)
+        for t in range(310, 620, 10):
+            dash.tick(T + t)
+        self.assertEqual(self.sources.renew_calls, 3)
+        self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
+
     def test_wake_waits_for_the_network_before_renewing(self):
         dash = self.make(cfg=self.DIRECT)
         dash.tick(T)  # token valid before sleep

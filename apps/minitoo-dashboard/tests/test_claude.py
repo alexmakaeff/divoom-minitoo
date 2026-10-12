@@ -262,6 +262,8 @@ class FetchDirectTest(unittest.TestCase):
 class RenewLoginTest(unittest.TestCase):
     ENV = {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u", "PATH": "/usr/bin:/bin",
            "CLAUDE_CODE_OAUTH_TOKEN": "x", "ANTHROPIC_BASE_URL": "y", "CLAUDECODE": "1"}
+    # Network up, and the Keychain shows a fresh token afterwards.
+    OK = {"online": lambda: True, "read": lambda: claude.Login("t", 2e9), "clock": lambda: 1e9}
 
     def test_find_claude_looks_past_launchd_path(self):
         seen = []
@@ -281,7 +283,7 @@ class RenewLoginTest(unittest.TestCase):
         def run(cmd, **kw):
             calls.append((cmd, kw))
             return subprocess.CompletedProcess(cmd, 0)
-        claude.renew_login(run=run, find=lambda: "/Users/u/.local/bin/claude", environ=self.ENV)
+        claude.renew_login(run=run, find=lambda: "/Users/u/.local/bin/claude", environ=self.ENV, **self.OK)
         (cmd, kw), = calls
         self.assertEqual(cmd, ["/Users/u/.local/bin/claude", "mcp", "list"])
         self.assertEqual(kw["env"], {"HOME": "/Users/u", "USER": "u", "LOGNAME": "u", "TERM": "dumb",
@@ -293,20 +295,20 @@ class RenewLoginTest(unittest.TestCase):
 
     def test_missing_cli(self):
         with self.assertRaises(claude.DirectError) as ctx:
-            claude.renew_login(run=None, find=lambda: None, environ=self.ENV)
+            claude.renew_login(run=None, find=lambda: None, environ=self.ENV, **self.OK)
         self.assertIn("not found", str(ctx.exception))
 
     def test_nonzero_exit(self):
         with self.assertRaises(claude.DirectError) as ctx:
             claude.renew_login(run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 1),
-                               find=lambda: "/x/claude", environ=self.ENV)
+                               find=lambda: "/x/claude", environ=self.ENV, **self.OK)
         self.assertIn("exited 1", str(ctx.exception))
 
     def test_timeout(self):
         def run(cmd, **kw):
             raise subprocess.TimeoutExpired(cmd, kw["timeout"])
         with self.assertRaises(claude.DirectError) as ctx:
-            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV)
+            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV, **self.OK)
         self.assertIn("timed out", str(ctx.exception))
 
     def test_timeout_kills_the_whole_process_group(self):
@@ -336,11 +338,36 @@ class RenewLoginTest(unittest.TestCase):
         import inspect
         self.assertIs(inspect.signature(claude.renew_login).parameters["run"].default, claude.run_in_group)
 
+    def test_offline_does_not_run(self):
+        # DarkWake without Wi-Fi: `mcp list` exits 0 offline and renews nothing (2026-10-12).
+        def run(cmd, **kw):
+            self.fail("ran offline")
+        with self.assertRaises(claude.OfflineError):
+            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV,
+                               **{**self.OK, "online": lambda: False})
+
+    def test_exit_zero_without_new_expiry_is_failure(self):
+        with self.assertRaises(claude.DirectError) as ctx:
+            claude.renew_login(run=lambda cmd, **kw: subprocess.CompletedProcess(cmd, 0),
+                               find=lambda: "/x/claude", environ=self.ENV,
+                               **{**self.OK, "read": lambda: claude.Login("t", 9e8)})
+        self.assertNotIsInstance(ctx.exception, claude.OfflineError)
+        self.assertIn("did not renew", str(ctx.exception))
+
+    def test_network_up_resolves_the_api_host(self):
+        hosts = []
+        self.assertTrue(claude.network_up(resolve=lambda host, port: hosts.append((host, port)) or [1]))
+        self.assertEqual(hosts, [("api.anthropic.com", 443)])
+
+        def fail(host, port):
+            raise OSError("nodename nor servname provided")
+        self.assertFalse(claude.network_up(resolve=fail))
+
     def test_cannot_start(self):
         def run(cmd, **kw):
             raise PermissionError("denied")
         with self.assertRaises(claude.DirectError):
-            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV)
+            claude.renew_login(run=run, find=lambda: "/x/claude", environ=self.ENV, **self.OK)
 
 
 class StatuslineScriptTest(unittest.TestCase):

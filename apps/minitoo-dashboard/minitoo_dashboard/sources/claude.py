@@ -4,7 +4,9 @@ import json
 import os
 import shutil
 import signal
+import socket
 import subprocess
+import time
 import urllib.error
 import urllib.request
 from dataclasses import dataclass, field
@@ -79,6 +81,10 @@ class KeychainAccessError(DirectError):
 
 class TokenExpiredError(DirectError):
     """The login token expired or was rejected; only the Claude Code CLI renews it."""
+
+
+class OfflineError(DirectError):
+    """No network (e.g. a DarkWake without Wi-Fi): a renewal attempt now would achieve nothing."""
 
 
 class RefusedError(DirectError):
@@ -248,14 +254,26 @@ def _kill_group(pgid: int) -> None:
         pass
 
 
+def network_up(resolve: Callable[..., Any] = socket.getaddrinfo, host: str = "api.anthropic.com") -> bool:
+    """Whether the API host resolves: false in a DarkWake without Wi-Fi."""
+    try:
+        return bool(resolve(host, 443))
+    except OSError:  # socket.gaierror included
+        return False
+
+
 def renew_login(run: Callable[..., Any] = run_in_group, find: Callable[[], Optional[str]] = find_claude,
-                environ: Any = os.environ, timeout: float = RENEW_TIMEOUT) -> None:
+                environ: Any = os.environ, timeout: float = RENEW_TIMEOUT,
+                online: Callable[[], bool] = network_up, read: Callable[[], Login] = read_login,
+                clock: Callable[[], float] = time.time) -> None:
     """Let Claude Code renew its own expired token: `claude mcp list` fetches the account's claude.ai
     connectors, so the CLI refreshes the login first. No model request, no session, no hooks
     (checked 2026-10-08). Clean env: the desktop app's CLAUDE_CODE_*/ANTHROPIC_* would switch auth."""
     path = find()
     if not path:
         raise DirectError("claude CLI not found; cannot renew the login")
+    if not online():  # offline `mcp list` still exits 0 and renews nothing (2026-10-12)
+        raise OfflineError("no network; renewal postponed")
     home = environ.get("HOME") or os.path.expanduser("~")
     env = {"HOME": home, "USER": environ.get("USER", ""), "LOGNAME": environ.get("LOGNAME", ""),
            "TERM": "dumb", "PATH": f"{os.path.dirname(path)}:{SYSTEM_PATH}"}
@@ -268,3 +286,6 @@ def renew_login(run: Callable[..., Any] = run_in_group, find: Callable[[], Optio
         raise DirectError(f"'claude mcp list' did not run: {exc}")
     if result.returncode != 0:
         raise DirectError(f"'claude mcp list' exited {result.returncode}")
+    login = read()  # exit 0 proves nothing: check that the token really moved on
+    if login.expires_at is not None and login.expires_at <= clock():
+        raise DirectError("'claude mcp list' ran but did not renew the token")

@@ -376,7 +376,13 @@ Replaces the 2026-10-02 `usage-helper` grant model:
   hold applies either way; `refresh-limits` lifts it. After sleep/wake the
   renewal waits 60 s for the network (the expired check is local and would
   otherwise spend the hour offline). It runs in its own process group, killed
-  as a whole on timeout, so stdio MCP servers it started do not linger. When renewal fails or
+  as a whole on timeout, so stdio MCP servers it started do not linger.
+  Incident 2026-10-12: every renewal fell into a DarkWake without Wi-Fi;
+  offline `mcp list` still exits 0, so each attempt "succeeded" and spent the
+  hour. Now: no attempt while `api.anthropic.com` does not resolve (no hold,
+  retried at the next 5-min check), and exit 0 counts only if the Keychain
+  token's `expiresAt` is in the future afterwards; otherwise it is a failure
+  ("ran but did not renew") with the hour hold. When renewal fails or
   does not help, the error still says to run `claude` in Terminal once.
 - Check result (2026-10-08 19:08, Claude Code 2.1.285, token expired 18:44):
   `claude auth status` does **not** renew (item unchanged). `claude mcp list`

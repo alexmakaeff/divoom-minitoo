@@ -11,7 +11,7 @@ from . import config as config_mod, encode, i18n, paths, render, store
 from .collect import Sources
 from .device import Device, DeviceError
 from .limit_alerts import Crossing, LimitAlerts, Reset
-from .sources.claude import KeychainAccessError, RefusedError, TokenExpiredError
+from .sources.claude import KeychainAccessError, OfflineError, RefusedError, TokenExpiredError
 
 log = logging.getLogger("minitoo_dashboard")
 log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches the file handler
@@ -225,6 +225,9 @@ class Dashboard:
                     self.next_renew = now + CLAUDE_RENEW_EVERY
                     try:
                         self.sources.renew_claude()
+                    except OfflineError as renew_exc:  # no attempt made: keep trying at each check
+                        self.next_renew = now
+                        log.warning("direct Claude limits failed: %s; %s", error, renew_exc)
                     except Exception as renew_exc:
                         log.warning("direct Claude limits failed: %s; renewing via 'claude mcp list' failed: %s",
                                     error, renew_exc)

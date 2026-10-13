@@ -2,7 +2,7 @@ import tempfile
 import unittest
 from pathlib import Path
 
-from minitoo_dashboard import store
+from minitoo_dashboard import daemon, store
 from minitoo_dashboard.config import Config
 from minitoo_dashboard.daemon import Dashboard
 from minitoo_dashboard.device import DeviceError
@@ -642,9 +642,29 @@ class DashboardTest(unittest.TestCase):
             dash.tick(T + 2)
             self.device.closed = [True]  # an unconfirmed upload long ago: not this frame's fault
             dash.tick(T + 200)
-        records = [r for r in logs.records if "device" in r.getMessage()]  # not the clock-jump line
+        records = [r for r in logs.records if "Bluetooth" in r.getMessage()]  # closures only
         self.assertEqual([r.levelname for r in records], ["WARNING", "INFO", "INFO"])
         self.assertIn("restarted", records[0].getMessage())
+
+    def test_screen_is_resent_shortly_after_a_restart(self):
+        dash = self.make()
+        dash.tick(T)
+        self.device.closed = [True]
+        dash.tick(T + 1)
+        dash.tick(T + 2)  # the MiniToo is still booting: wait
+        self.assertEqual(len(self.sends()), 1)
+        dash.tick(T + 1 + daemon.RESTART_SETTLE)
+        self.assertEqual(len(self.sends()), 2)  # same frame, not the 5-minute resend
+        dash.tick(T + 10 + daemon.RESTART_SETTLE)
+        self.assertEqual(len(self.sends()), 2)
+
+    def test_dropped_link_does_not_force_a_resend(self):
+        dash = self.make()
+        dash.tick(T)
+        self.device.closed = [False]
+        for t in range(1, 30):
+            dash.tick(T + t)
+        self.assertEqual(len(self.sends()), 1)
 
     def test_silent_device_detected_after_two_unanswered_sends(self):
         dash = self.make()

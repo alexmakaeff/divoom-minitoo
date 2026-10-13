@@ -33,6 +33,7 @@ BACKOFF = (30, 60, 120, 300)
 SILENCE_WAIT = 10  # the MiniToo replies within a second or two; none after this: unanswered
 SILENT_AFTER = 2  # unanswered sends in a row before the device counts as silent
 RESTART_WINDOW = 60  # a closure that cuts an unconfirmed upload this soon after our send: the MiniToo restarted
+RESTART_SETTLE = 5  # after a restart, wait this long for the MiniToo to boot, then resend the screen
 LIMIT_ALERT_SHOW = 10  # seconds a limit alert stays on screen before the dashboard returns
 
 
@@ -120,6 +121,7 @@ class Dashboard:
         self.weather_key: Any = None
         self.last_sent_at: Optional[float] = None
         self.sent_tick: Optional[float] = None  # tick time of our last upload
+        self.resend_at: Optional[float] = None  # the MiniToo restarted: resend the screen then
         self.last_error: Optional[str] = None
         self._last_state: Any = None
         self._last_state_write = 0.0
@@ -161,6 +163,9 @@ class Dashboard:
         self.paused = False
         if device is not None:
             self._watch_closures(device, now)
+            if self.resend_at is not None and now >= self.resend_at:
+                log.info("resending the screen after the device restart")
+                self.resend_at, self.last_blob, self.alert_shown = None, None, False
 
         self._refresh(cfg, now)
         now += self.monotonic() - started  # a renewal may block for a minute: stamp sends with the real time
@@ -297,6 +302,7 @@ class Dashboard:
         for during_upload in device.closures():
             if during_upload and self.sent_tick is not None and now - self.sent_tick <= RESTART_WINDOW:
                 log.warning("device restarted while handling a frame (Bluetooth dropped before it was shown)")
+                self.resend_at = now + RESTART_SETTLE  # it shows a clock face until the next upload
             else:
                 log.info("device Bluetooth link closed (switched off, out of range or the Mac slept)")
 

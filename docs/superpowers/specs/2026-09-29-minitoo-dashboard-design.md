@@ -287,6 +287,14 @@ of 2026-10-05, which do not touch the upload path.
   Mac asleep: the owner's daily routine) is an INFO "device Bluetooth link closed".
 - Logging only: the existing 5-minute resend still restores the screen. Next step, once the
   log shows how often it happens: a larger `SEND_DELAY_MS` or fewer uploads.
+- 2026-10-13 follow-up: `SEND_DELAY_MS=40` (10-08..10-13) did not lower the rate (4 restarts),
+  so it is back to 20. A stress test (real frames 1 s apart, dashboard paused) ran 122 uploads
+  without a restart, then hung the MiniToo (RFCOMM opened, no rx at all, not even keepalives)
+  until a power cycle: back-to-back uploads are unsafe. Fewer uploads is not an option (the
+  clock needs one a minute). So the dashboard now recovers faster instead: a restart sets
+  `resend_at = now + 5 s` (the rebooted device shows its clock face); then the current screen
+  (or the pending Clauddy alert) is sent again and "resending the screen after the device
+  restart" is logged. A plain closure does not force a resend.
 
 ### Amendment (2026-10-06): limit resets
 

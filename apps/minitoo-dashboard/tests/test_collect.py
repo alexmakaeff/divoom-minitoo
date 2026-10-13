@@ -127,6 +127,16 @@ class CollectTest(unittest.TestCase):
         (self.sessions / "s1").write_text(f"alerting {NOW}\n")
         self.assertEqual(self.sources().status(NOW), "alerting")
 
+    def test_codex_question_alerts_with_codex_face(self):
+        (self.sessions / "s1").write_text(f"chilling {NOW - 5} codex\n")
+        store.write_json_atomic(self.cache / "codex.json", {"working": False, "asking": NOW - 40, "checked_at": NOW})
+        src = self.sources()
+        self.assertEqual(src.status(NOW), "alerting")
+        self.assertEqual(src.alert_agent(NOW), "codex")
+        store.write_json_atomic(self.cache / "codex.json", {"working": False, "asking": None, "checked_at": NOW})
+        self.assertEqual(src.status(NOW), "chilling")
+        self.assertIsNone(src.alert_agent(NOW))
+
 
 if __name__ == "__main__":
     unittest.main()

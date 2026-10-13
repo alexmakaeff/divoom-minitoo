@@ -345,6 +345,28 @@ Codex (0.158+, also inside ChatGPT.app) has Claude-style lifecycle hooks in
   the thread's rollout (`$CODEX_HOME/sessions/**/rollout-*-<session_id>.jsonl`,
   ~0.1 s) and skips the alert for `auto_review`. No rollout found → alert.
 
+### Amendment (2026-10-13): Codex question cards
+
+Owner saw no alert when Codex asked a multiple-choice question. Such questions
+are the `request_user_input_async` tool (ChatGPT.app; `request_user_input` in
+plan mode), not an approval, and no Codex hook fires for them. The rollout logs
+do record them, so the log reader that already feeds Codex limits finds them:
+
+- Open question: a `response_item` `function_call` whose name starts with
+  `request_user_input` and whose `call_id` no later user message of type
+  `send_user_message_question_reply` mentions. A later `task_started` or
+  `turn_aborted` closes it too (the user moved on or stopped Codex);
+  `task_complete` does not (the card stays while the turn has ended).
+- `codex.json` gains `asking` (time of the newest open question). Within the
+  60 s freshness window `collect.Sources` adds it as an `alerting … codex`
+  entry, so it shows Codex's alert face and expires after 30 minutes like any
+  session.
+- No `approvals_reviewer` check: a question card always waits for the user,
+  even in `auto_review` threads (the 2026-10-13 question was in one).
+- Checked against the real rollout of 2026-10-13: open from the question
+  (16:23:26) to the reply (16:25:17); 12 questions in two weeks of logs, 10
+  answered by a reply, 2 left open until the next turn started.
+
 ### Amendment (2026-10-08): Claude token without Keychain grant
 
 Incident on 2026-10-07/08: direct limits stopped for two reasons. (1) The

@@ -1,7 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
-from typing import Any, Callable, Optional
+from typing import Any, Callable, List, Optional
 
 from . import paths, render, status as status_mod, store
 from .config import Config
@@ -25,11 +25,15 @@ class Sources:
         self.codex_root = Path(codex_root or paths.codex_sessions_dir())
         self.codex_scanner = codex.Scanner(self.codex_root)
 
+    def _entries(self, now: float) -> List[status_mod.Entry]:
+        questions = codex.question_entries(store.read_json(self.cache_dir / "codex.json"), now)
+        return status_mod.read_sessions(self.sessions_dir) + questions
+
     def status(self, now: float) -> str:
-        return status_mod.aggregate(status_mod.read_sessions(self.sessions_dir), now)
+        return status_mod.aggregate(self._entries(now), now)
 
     def alert_agent(self, now: float) -> Optional[str]:
-        return status_mod.alert_agent(status_mod.read_sessions(self.sessions_dir), now)
+        return status_mod.alert_agent(self._entries(now), now)
 
     def refresh_weather(self, cfg: Config, now: float) -> None:
         record = self.fetch_weather(cfg.city_lat, cfg.city_lon, cfg.temp_unit, now)
@@ -49,10 +53,10 @@ class Sources:
         self.renew_claude_login()
 
     def refresh_codex(self, now: float) -> None:
-        record, working = self.codex_scanner.scan(now)
+        record, working, asking = self.codex_scanner.scan(now)
         path = self.cache_dir / "codex.json"
         old = store.read_json(path)
-        new = codex.merge(old, record, working, now)
+        new = codex.merge(old, record, working, now, asking)
         if codex.needs_write(old, new, now):
             store.write_json_atomic(path, new)
 

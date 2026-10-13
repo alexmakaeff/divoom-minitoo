@@ -189,6 +189,10 @@ is not supported.
   (`/Applications/ChatGPT.app/Contents/Resources/codex-cli/CodexCLI.app/Contents/MacOS/codex`
   if `codex` is not on your PATH), type `/hooks` and trust the MiniToo
   dashboard hooks. Trust again after the hooks change.
+- When Codex asks you a question with answer buttons, the screen shows the
+  same alert until you answer, start a new message or stop Codex. No hook
+  reports these questions; the dashboard finds them in the session logs, within
+  5 seconds.
 - The animation lives in Clauddy's "working" custom face, which the dashboard
   does not use (the MiniToo has only three). `bin/upload-codex-face.sh [GIF]`
   uploads it (the installer offers to) and adds `CLAUDDY_CLOCK_CODEX` to

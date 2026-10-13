@@ -26,6 +26,19 @@ def turn(kind, at):
     return {"timestamp": iso(at), "type": "event_msg", "payload": {"type": kind}}
 
 
+def ask(call_id, at, name="request_user_input_async"):
+    return {"timestamp": iso(at), "type": "response_item",
+            "payload": {"type": "function_call", "name": name, "call_id": call_id,
+                        "arguments": json.dumps({"questions": [{"title": "Go?", "options": ["Yes", "No"]}]})}}
+
+
+def reply(call_id, at):
+    item = json.dumps(json.dumps(["request_user_input_async", call_id, 0]))
+    text = f'<send_user_message_question_reply>\n[{{"questionItemId":{item},"answer":"Yes"}}]'
+    return {"timestamp": iso(at), "type": "response_item",
+            "payload": {"type": "message", "role": "user", "content": [{"type": "input_text", "text": text}]}}
+
+
 class CodexTest(unittest.TestCase):
     def setUp(self):
         self.tmp = tempfile.TemporaryDirectory()
@@ -43,7 +56,7 @@ class CodexTest(unittest.TestCase):
 
     def test_limits_and_working(self):
         self.write("2026/09/23/rollout-a.jsonl", [turn("task_started", NOW - 60), limits(NOW - 30)])
-        record, working = codex.Scanner(self.root).scan(NOW)
+        record, working, _ = codex.Scanner(self.root).scan(NOW)
         self.assertEqual(record, {"captured_at": NOW - 30,
                                   "five_hour": {"used_percentage": 58.0, "resets_at": NOW + 600},
                                   "seven_day": {"used_percentage": 21.0, "resets_at": NOW + 86400}})
@@ -52,7 +65,7 @@ class CodexTest(unittest.TestCase):
     def test_complete_and_aborted_mean_idle(self):
         self.write("a.jsonl", [turn("task_started", NOW - 60), turn("task_complete", NOW - 50)])
         self.write("b.jsonl", [turn("task_started", NOW - 60), turn("turn_aborted", NOW - 50)])
-        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, False))
+        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, False, None))
 
     def test_any_working_file_wins(self):
         self.write("a.jsonl", [turn("task_complete", NOW - 50)])
@@ -66,7 +79,7 @@ class CodexTest(unittest.TestCase):
 
     def test_old_files_ignored(self):
         self.write("a.jsonl", [turn("task_started", NOW - 4000), limits(NOW - 4000)], mtime=NOW - 1801)
-        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, False))
+        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, False, None))
 
     def test_week_only_record(self):
         row = limits(NOW - 30)
@@ -97,14 +110,14 @@ class CodexTest(unittest.TestCase):
         self.assertIsNone(codex.Scanner(self.root).scan(NOW)[0])
 
     def test_missing_root(self):
-        self.assertEqual(codex.Scanner(self.root / "nope").scan(NOW), (None, False))
+        self.assertEqual(codex.Scanner(self.root / "nope").scan(NOW), (None, False, None))
 
     def test_memo_skips_unchanged_files(self):
         path = self.write("a.jsonl", [limits(NOW - 30)])
         scanner = codex.Scanner(self.root)
         scanner.scan(NOW)
         stamp, _, end = scanner.memo[str(path)]
-        scanner.memo[str(path)] = (stamp, ({"captured_at": 1.0, "five_hour": {}}, None), end)
+        scanner.memo[str(path)] = (stamp, ({"captured_at": 1.0, "five_hour": {}}, None, None), end)
         self.assertEqual(scanner.scan(NOW + 1)[0]["captured_at"], 1.0)
 
     def test_old_conversation_found_on_full_walk(self):
@@ -139,7 +152,7 @@ class CodexTest(unittest.TestCase):
         self.assertTrue(scanner.scan(NOW)[1])
         big = {"timestamp": iso(NOW), "type": "response_item", "payload": {"output": "x" * (5 * 1024 * 1024)}}
         self.append(path, json.dumps(big) + "\n", NOW + 5)
-        record, working = scanner.scan(NOW + 5)
+        record, working, _ = scanner.scan(NOW + 5)
         self.assertTrue(working)
         self.assertEqual(record["captured_at"], NOW - 9)
         self.append(path, json.dumps(turn("task_complete", NOW + 9)) + "\n", NOW + 10)
@@ -192,6 +205,50 @@ class CodexTest(unittest.TestCase):
         self.assertFalse(codex.is_working({"working": True, "checked_at": NOW - 61}, NOW))
         self.assertFalse(codex.is_working({"working": False, "checked_at": NOW}, NOW))
         self.assertFalse(codex.is_working(None, NOW))
+
+    def test_unanswered_question(self):
+        self.write("a.jsonl", [turn("task_started", NOW - 60), ask("call_1", NOW - 40), turn("task_complete", NOW - 30)])
+        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, False, NOW - 40))
+
+    def test_sync_question_counts_too(self):
+        self.write("a.jsonl", [turn("task_started", NOW - 60), ask("call_1", NOW - 40, name="request_user_input")])
+        self.assertEqual(codex.Scanner(self.root).scan(NOW)[2], NOW - 40)
+
+    def test_answered_question(self):
+        self.write("a.jsonl", [turn("task_started", NOW - 60), ask("call_1", NOW - 40), reply("call_1", NOW - 20)])
+        self.assertEqual(codex.Scanner(self.root).scan(NOW), (None, True, None))
+
+    def test_new_turn_or_interrupt_drops_question(self):
+        self.write("a.jsonl", [ask("call_1", NOW - 40), turn("task_complete", NOW - 30), turn("task_started", NOW - 20)])
+        self.write("b.jsonl", [ask("call_2", NOW - 40), turn("turn_aborted", NOW - 30)])
+        self.assertIsNone(codex.Scanner(self.root).scan(NOW)[2])
+
+    def test_other_reply_keeps_question(self):
+        self.write("a.jsonl", [ask("call_1", NOW - 50), ask("call_2", NOW - 40), reply("call_1", NOW - 20)])
+        self.assertEqual(codex.Scanner(self.root).scan(NOW)[2], NOW - 40)
+
+    def test_newest_question_across_files(self):
+        self.write("a.jsonl", [ask("call_1", NOW - 50)])
+        self.write("b.jsonl", [ask("call_2", NOW - 40)])
+        self.assertEqual(codex.Scanner(self.root).scan(NOW)[2], NOW - 40)
+
+    def test_question_answered_in_appended_lines(self):
+        path = self.write("a.jsonl", [turn("task_started", NOW - 60), ask("call_1", NOW - 40)])
+        scanner = codex.Scanner(self.root)
+        self.assertEqual(scanner.scan(NOW)[2], NOW - 40)
+        self.append(path, json.dumps(limits(NOW + 1)) + "\n", NOW + 2)
+        self.assertEqual(scanner.scan(NOW + 2)[2], NOW - 40)
+        self.append(path, json.dumps(reply("call_1", NOW + 3)) + "\n", NOW + 4)
+        self.assertIsNone(scanner.scan(NOW + 4)[2])
+
+    def test_merge_and_question_entry(self):
+        cache = codex.merge(None, None, False, NOW, asking=NOW - 40)
+        self.assertEqual(cache, {"working": False, "asking": NOW - 40, "checked_at": NOW})
+        self.assertEqual(codex.question_entries(cache, NOW + 59), [("alerting", NOW - 40, "codex")])
+        self.assertEqual(codex.question_entries(cache, NOW + 61), [])  # nobody is checking any more
+        self.assertEqual(codex.question_entries(codex.merge(None, None, False, NOW), NOW), [])
+        self.assertEqual(codex.question_entries({"asking": "junk", "checked_at": NOW}, NOW), [])
+        self.assertEqual(codex.question_entries(None, NOW), [])
 
 
 if __name__ == "__main__":

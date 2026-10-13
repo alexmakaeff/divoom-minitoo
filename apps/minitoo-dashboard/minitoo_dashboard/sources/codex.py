@@ -14,11 +14,17 @@ CHUNK = 64 * 1024
 WORKING_TTL = 60  # the daemon rewrites the flag every 5 s; older means nobody is checking
 WINDOWS = {300: "five_hour", 10080: "seven_day"}
 TURN_EVENTS = {"task_started": True, "task_complete": False, "turn_aborted": False}
+# Choice cards (request_user_input_async in the app, request_user_input in plan mode) fire no hook.
+# A card is open until the user's reply names its call_id, or the user starts or stops a turn.
+QUESTION_TOOL = "request_user_input"
+QUESTION_REPLY = "send_user_message_question_reply"
+QUESTION_GONE = ("task_started", "turn_aborted")
 LIMIT_KEYS = ("captured_at", "five_hour", "seven_day")
 FULL_WALK_EVERY = 60  # a resumed old conversation is noticed within this; in between only hot files are checked
 REWRITE_EVERY = 30  # keep checked_at well inside WORKING_TTL without rewriting the cache every 5 s
 
-Result = Tuple[Optional[dict], Optional[bool]]
+Question = Tuple[str, float]  # call_id, when it was asked
+Result = Tuple[Optional[dict], Optional[bool], Optional[Question]]
 Memo = Dict[str, Tuple[Tuple[float, int], Result, int]]  # path -> ((mtime, size), result, end of complete lines)
 
 
@@ -105,10 +111,24 @@ def _last_byte(path: Path, size: int) -> bytes:
         return fh.read(1)
 
 
-def scan_file(path: Path, floor: int = 0) -> Tuple[Optional[dict], Optional[bool], int]:
-    """Newest limits record and turn state after byte `floor`, and where the complete lines end."""
+def _replies(payload: dict) -> str:
+    if payload.get("type") != "message" or payload.get("role") != "user":
+        return ""
+    content = payload.get("content")
+    texts = [c.get("text") for c in content if isinstance(c, dict)] if isinstance(content, list) else []
+    return "".join(t for t in texts if isinstance(t, str) and QUESTION_REPLY in t)
+
+
+Scan = Tuple[Optional[dict], Optional[bool], Any, str, int]
+
+
+def scan_file(path: Path, floor: int = 0) -> Scan:
+    """After byte `floor`: newest limits record, turn state, open question, reply text and
+    where the complete lines end. The question is None while undecided, False if none is open."""
     record: Optional[dict] = None
     working: Optional[bool] = None
+    question: Any = None
+    replies = ""  # replies newer than the line being read
     end = floor
     try:
         size = path.stat().st_size
@@ -125,19 +145,32 @@ def scan_file(path: Path, floor: int = 0) -> Tuple[Optional[dict], Optional[bool
             if not isinstance(obj, dict):
                 continue
             payload = obj.get("payload")
-            if obj.get("type") != "event_msg" or not isinstance(payload, dict):
+            if not isinstance(payload, dict):
                 continue
             kind = payload.get("type")
+            if obj.get("type") == "response_item":
+                if question is None:
+                    replies += _replies(payload)
+                    call_id, name = payload.get("call_id"), payload.get("name")
+                    if (kind == "function_call" and isinstance(name, str) and name.startswith(QUESTION_TOOL)
+                            and isinstance(call_id, str) and call_id and call_id not in replies):
+                        at = iso_epoch(obj.get("timestamp"))
+                        question = (call_id, at) if at is not None else None
+                continue
+            if obj.get("type") != "event_msg":
+                continue
+            if question is None and kind in QUESTION_GONE:
+                question = False
             if working is None and kind in TURN_EVENTS:
                 working = TURN_EVENTS[kind]
             elif record is None and kind == "token_count":
                 at = iso_epoch(obj.get("timestamp"))
                 record = limits_record(payload.get("rate_limits"), at) if at is not None else None
-            if record is not None and working is not None:
+            if record is not None and working is not None and question is not None:
                 break
     except OSError:
         pass
-    return record, working, end
+    return record, working, question, replies, end
 
 
 class Scanner:
@@ -166,31 +199,38 @@ class Scanner:
         if prev is not None and prev[0] == stamp:
             return prev[1]
         if prev is not None and st.st_size >= prev[2]:  # appended since the last look
-            record, working, end = scan_file(path, prev[2])
-            old_record, old_working = prev[1]
-            result = (record or old_record, old_working if working is None else working)
+            record, working, question, replies, end = scan_file(path, prev[2])
+            old_record, old_working, old_question = prev[1]
+            if question is None:
+                question = old_question if old_question and old_question[0] not in replies else None
+            result = (record or old_record, old_working if working is None else working, question or None)
         else:  # first look, or the file was truncated
-            record, working, end = scan_file(path)
-            result = (record, working)
+            record, working, question, _, end = scan_file(path)
+            result = (record, working, question or None)
         self.memo[key] = (stamp, result, end)
         return result
 
-    def scan(self, now: float) -> Tuple[Optional[dict], bool]:
+    def scan(self, now: float) -> Tuple[Optional[dict], bool, Optional[float]]:
+        """Newest limits record, whether a turn runs, and when the newest open question was asked."""
         best: Optional[dict] = None
         working = False
+        asking: Optional[float] = None
         seen = set()
         for path, st in self._files(now):
             seen.add(str(path))
-            record, busy = self._result(path, st)
+            record, busy, question = self._result(path, st)
             working = working or bool(busy)
+            if question and (asking is None or question[1] > asking):
+                asking = question[1]
             if record is not None and (best is None or record["captured_at"] > best["captured_at"]):
                 best = record
         for key in set(self.memo) - seen:
             del self.memo[key]
-        return best, working
+        return best, working, asking
 
 
-def merge(old: Any, record: Optional[dict], working: bool, now: float) -> dict:
+def merge(old: Any, record: Optional[dict], working: bool, now: float,
+          asking: Optional[float] = None) -> dict:
     old = old if isinstance(old, dict) else {}
     limits = {k: old[k] for k in LIMIT_KEYS if k in old}
     captured = limits.get("captured_at")
@@ -198,7 +238,8 @@ def merge(old: Any, record: Optional[dict], working: bool, now: float) -> dict:
         limits, captured = {}, 0
     if record is not None and record["captured_at"] > captured:
         limits = record
-    return dict(limits, working=working, checked_at=now)
+    flags = {"working": working, "asking": asking} if asking is not None else {"working": working}
+    return dict(limits, **flags, checked_at=now)
 
 
 def needs_write(old: Any, new: dict, now: float) -> bool:
@@ -211,3 +252,13 @@ def needs_write(old: Any, new: dict, now: float) -> bool:
 def is_working(cache: Any, now: float) -> bool:
     return (isinstance(cache, dict) and cache.get("working") is True
             and now - float(cache.get("checked_at", 0)) <= WORKING_TTL)
+
+
+def question_entries(cache: Any, now: float) -> List[Tuple[str, float, str]]:
+    """An open Codex question as a session entry, so it alerts like a permission request."""
+    if not isinstance(cache, dict) or now - float(cache.get("checked_at", 0)) > WORKING_TTL:
+        return []
+    asking = cache.get("asking")
+    if not isinstance(asking, (int, float)) or isinstance(asking, bool):
+        return []
+    return [("alerting", float(asking), "codex")]

@@ -100,6 +100,7 @@ minitoo-dashboard pause            # release the device (e.g. for the phone app)
 minitoo-dashboard resume
 minitoo-dashboard logs
 minitoo-dashboard refresh-limits   # CLAUDE_LIMITS=direct: check Claude limits now
+minitoo-dashboard check-limits     # one direct request without the daemon (the installer runs it)
 ```
 
 In Claude Code: `/dashboard-city Kazan`. When a name matches several places,
@@ -150,7 +151,7 @@ every second.
 
   If the endpoint refuses (403 without an active subscription, 429 rate
   limited), the daemon waits 10, 20, 40, then 60 minutes between attempts
-  (longer if the server sends `Retry-After`); sleep/wake does not cut the wait
+  (longer if the server sends `Retry-After`, capped at 6 h); sleep/wake does not cut the wait
   short. `minitoo-dashboard refresh-limits` checks at once.
   If a direct request fails, the dashboard keeps the last numbers, the status
   line still updates them, and `minitoo-dashboard status` shows the error. To

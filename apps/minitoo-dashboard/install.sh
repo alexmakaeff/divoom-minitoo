@@ -81,8 +81,17 @@ Where should Claude limits come from?
 EOM
 limits=statusline
 if [ "$(ask 'Choose 1 or 2 [1]: ' 1)" = 2 ]; then
-  limits=direct
-  note "Direct Claude limits on. In a minute check them with: minitoo-dashboard status"
+  if "$BIN" check-limits; then
+    limits=direct
+  else
+    case "$(ask 'Use direct limits anyway (the daemon retries and renews an expired login)? [y/N] ' n)" in
+      y|Y|yes|Yes) limits=direct ;;
+      *) note "Keeping the status line. Switch later: minitoo-dashboard init --claude-limits direct" ;;
+    esac
+  fi
+  if [ "$limits" = direct ]; then
+    note "Direct Claude limits on. In a minute check them with: minitoo-dashboard status"
+  fi
 fi
 codex=()  # without ~/.codex keep whatever CODEX is already set to
 if [ -d "$HOME/.codex/sessions" ]; then

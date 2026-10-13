@@ -145,6 +145,19 @@ def cmd_refresh_limits(args) -> int:
     return 1
 
 
+def cmd_check_limits(args) -> int:
+    """One direct usage request, without the daemon: lets the installer try direct limits before enabling them."""
+    try:
+        record = claude.fetch_direct(time.time())
+    except claude.DirectError as exc:
+        print(f"Direct Claude limits did not work: {exc}", file=sys.stderr)
+        return 1
+    shown = ", ".join(f"{label} {record[key]['used_percentage']:.0f}%"
+                      for key, label in (("five_hour", "5h"), ("seven_day", "week")) if key in record)
+    print(f"Direct Claude limits work ✓ ({shown or 'no active windows'})")
+    return 0
+
+
 def cmd_preview(args) -> int:
     now = time.time()
     cfg = config.load_config()
@@ -214,6 +227,7 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
     p.add_argument("--pick", type=int)
     sub.add_parser("status", help="show what the dashboard is doing")
     sub.add_parser("refresh-limits", help="check Claude limits now (CLAUDE_LIMITS=direct)")
+    sub.add_parser("check-limits", help="ask Anthropic for Claude limits once, without the daemon")
     p = sub.add_parser("preview", help="render pages to PNG without a device")
     p.add_argument("--demo", action="store_true", help="use sample data")
     p.add_argument("--out")
@@ -227,4 +241,4 @@ def main(argv: Optional[List[str]] = None, geocode: Optional[Callable] = None) -
         return cmd_city(args, geocode or weather.geocode)
     return {"run": cmd_run, "init": cmd_init, "status": cmd_status, "preview": cmd_preview,
             "pause": cmd_pause, "resume": cmd_resume, "logs": cmd_logs,
-            "refresh-limits": cmd_refresh_limits}[args.command](args)
+            "refresh-limits": cmd_refresh_limits, "check-limits": cmd_check_limits}[args.command](args)

@@ -214,7 +214,7 @@ After the owner's plan lapsed (2026-10-02 11:38) the endpoint answered 403, then
 alternately 429, every 5 minutes; after renewing it kept refusing. Changes:
 `usage-helper` reports the API error type/message (≤200 chars, no credentials)
 and `Retry-After`. The daemon treats 403/429 as `RefusedError` and backs off
-10/20/40/60 min (or `Retry-After` if longer); a wake does not cut the hold
+10/20/40/60 min (or `Retry-After` if longer, capped at 6 h; `inf` is ignored); a wake does not cut the hold
 short; success resets it. `minitoo-dashboard refresh-limits` drops a
 `refresh-limits` file the daemon consumes to check at once, and reports the
 result from `state.json` (`limits_checked_at`).
@@ -363,13 +363,19 @@ Replaces the 2026-10-02 `usage-helper` grant model:
 - Error mapping is unchanged (403/429 back-off with Retry-After, other HTTP
   and network errors keep the last data); the API error type/message is still
   shortened to 200 chars.
+- Review follow-ups (2026-10-13): a cut-off response (`IncompleteRead`) is a
+  network error; a token http.client refuses as a header is `request`, never
+  echoed; JSON booleans are not numbers (`expiresAt`, percentages);
+  `install.sh` runs `minitoo-dashboard check-limits` (one direct request)
+  before enabling direct and asks before keeping it on failure. Sends after a
+  slow renewal are stamped with the real time, so no spurious resend.
 - `usage-helper/` (Swift), `grant-keychain` and the `--interactive` path are
   removed; `install.sh` no longer builds or runs the helper. The notification
   text and `status` hint say to run `claude` in Terminal.
 - Expired token (`expiresAt` passed): the daemon starts the CLI to renew it,
   at most once an hour, only when `claude` is on the PATH, never while the
   token is still valid. It runs `claude mcp list` (see the check result below) with a clean
-  environment (`HOME`, `USER`, `LOGNAME`, `TERM=dumb`, a minimal `PATH`),
+  environment (`HOME`, `TERM=dumb`, a minimal `PATH`, plus `USER`/`LOGNAME` when set),
   `cwd=$HOME`, output discarded, 60 s timeout; `claude` is looked up on the
   PATH and in `~/.local/bin`, `/opt/homebrew/bin`, `/usr/local/bin`. Success →
   limits are checked again on the next tick; failure → one warning. The hour

@@ -14,6 +14,7 @@
 | Отпустить MiniToo, например для приложения Divoom на телефоне | `minitoo-dashboard pause` |
 | Снова показывать дашборд | `minitoo-dashboard resume` |
 | Проверить лимиты Claude прямо сейчас | `minitoo-dashboard refresh-limits` |
+| Один прямой запрос лимитов без демона (так проверяет установщик) | `minitoo-dashboard check-limits` |
 | Посмотреть экран без устройства (PNG в `~/.minitoo-dashboard/preview`) | `minitoo-dashboard preview` |
 | То же на примерных данных | `minitoo-dashboard preview --demo` |
 

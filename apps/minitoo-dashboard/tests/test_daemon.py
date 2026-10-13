@@ -268,6 +268,36 @@ class DashboardTest(unittest.TestCase):
         self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
         self.assertTrue(any("renewed" in line for line in logs.output))
 
+    def test_rejected_token_is_renewed_like_an_expired_one(self):
+        # The Keychain gives no expiry (or a wrong one) and the endpoint answers 401.
+        from minitoo_dashboard.sources import claude
+        replies = [{"status": "http_401", "detail": "token rejected"}]
+
+        def fetch():
+            claude.fetch_direct(T, read=lambda: claude.Login("t", None), request=lambda token: replies[-1])
+        self.sources.on_claude = fetch
+        self.sources.on_renew = lambda: replies.append({"status": "ok", "five_hour": {}})
+        dash = self.make(cfg=self.DIRECT)
+        dash.tick(T)
+        self.assertIn("http_401", store.read_json(self.home / "state.json")["limits_error"])
+        dash.tick(T + 1)
+        self.assertEqual((self.sources.renew_calls, self.sources.claude_calls), (1, 2))
+        self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
+
+    def test_slow_renewal_does_not_age_the_reply_check(self):
+        # A 60 s `claude mcp list` inside the tick: the send that follows must be stamped after it,
+        # or the next tick sees a 60 s old unanswered send and resends for nothing.
+        clock = [0.0]
+        self.sources.claude_error = self.expired()
+        self.sources.on_renew = lambda: clock.__setitem__(0, clock[0] + 60)
+        dash = self.make(cfg=self.DIRECT, monotonic=lambda: clock[0])
+        dash.tick(T)
+        self.assertEqual(len(self.sends()), 1)
+        self.device.replies = False  # not answered yet, one second after the send
+        clock[0] += 1
+        dash.tick(T + 61)
+        self.assertEqual(len(self.sends()), 1)
+
     def test_other_errors_never_renew(self):
         from minitoo_dashboard.sources.claude import DirectError, KeychainAccessError, RefusedError
         dash = self.make(cfg=self.DIRECT)

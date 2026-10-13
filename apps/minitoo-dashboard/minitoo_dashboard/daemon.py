@@ -140,6 +140,7 @@ class Dashboard:
             self.last_tick = now + (self.monotonic() - started)
 
     def _tick(self, now: float) -> None:
+        started = self.monotonic()
         cfg = self.load_config()
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
@@ -162,6 +163,7 @@ class Dashboard:
             self._watch_closures(device, now)
 
         self._refresh(cfg, now)
+        now += self.monotonic() - started  # a renewal may block for a minute: stamp sends with the real time
         self.status = self.sources.status(now)
         if device is None:
             self.last_error = "no device configured (DEVICE_MAC in config)"

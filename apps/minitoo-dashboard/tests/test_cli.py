@@ -117,6 +117,20 @@ class CliTest(unittest.TestCase):
         self.assertEqual(code, 1)
         self.assertIn("http_429 slow down", out)
 
+    def test_check_limits_reports_percentages_or_error(self):
+        from minitoo_dashboard.sources import claude
+        record = {"captured_at": 0, "source": "direct", "five_hour": {"used_percentage": 62.0, "resets_at": 1}}
+        with mock.patch.object(claude, "fetch_direct", lambda now: record):
+            code, out = self.run_cli(["check-limits"])
+        self.assertEqual((code, "5h 62%" in out), (0, True))
+
+        def expired(now):
+            raise claude.TokenExpiredError("Claude usage: token expired")
+        with mock.patch.object(claude, "fetch_direct", expired):
+            code, out = self.run_cli(["check-limits"])
+        self.assertEqual((code, "token expired" in out), (1, True))
+        self.assertFalse((self.home / "cache" / "claude.json").exists())
+
     def test_refresh_limits_without_daemon(self):
         code, out = self.run_cli(["refresh-limits"])
         self.assertEqual(code, 1)

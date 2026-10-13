@@ -1,8 +1,12 @@
+import http.client
+import http.server
 import io
 import json
 import os
 import subprocess
+import threading
 import urllib.error
+import urllib.request
 from email.message import Message
 import tempfile
 import time
@@ -33,6 +37,8 @@ class ExtractTest(unittest.TestCase):
 
     def test_bad_types(self):
         self.assertIsNone(claude.extract({"rate_limits": {"five_hour": {"used_percentage": "x"}}}, NOW))
+        self.assertIsNone(claude.extract({"rate_limits": {"five_hour": {"used_percentage": True,
+                                                                        "resets_at": NOW + 1}}}, NOW))
 
 
 class ViewTest(unittest.TestCase):
@@ -98,6 +104,11 @@ class DirectUsageTest(unittest.TestCase):
 
     def test_null_resets_at_skips_window(self):
         data = {"status": "ok", "five_hour": {"utilization": 5.0, "resets_at": None},
+                "seven_day": self.HELPER_OK["seven_day"]}
+        self.assertNotIn("five_hour", claude.parse_direct(data, 0))
+
+    def test_boolean_utilization_skips_window(self):
+        data = {"status": "ok", "five_hour": {"utilization": True, "resets_at": "2026-10-08T12:00:00+00:00"},
                 "seven_day": self.HELPER_OK["seven_day"]}
         self.assertNotIn("five_hour", claude.parse_direct(data, 0))
 
@@ -171,6 +182,9 @@ class ReadLoginTest(unittest.TestCase):
             claude.read_login(run=keychain(code=51))
         self.assertIn("Always Allow", str(ctx.exception))
 
+    def test_boolean_expiry_is_no_expiry(self):
+        self.assertIsNone(claude.read_login(run=keychain(item(True))).expires_at)
+
     def test_item_without_claude_login_is_format_error(self):
         for stdout in ('{"mcpOAuth": {}}', "not json", "[]", '{"claudeAiOauth": {"accessToken": ""}}'):
             with self.assertRaises(claude.DirectError) as ctx:
@@ -205,6 +219,30 @@ class RequestUsageTest(unittest.TestCase):
             raise http_error(429, b"", "Wed, 21 Oct 2026 07:28:00 GMT")
         self.assertNotIn("retry_after", claude.request_usage(SECRET, urlopen=urlopen))
 
+    def test_retry_after_infinite_or_huge_is_capped(self):
+        for header, expected in (("inf", None), ("nan", None), ("1e12", claude.RETRY_AFTER_MAX)):
+            def urlopen(request, timeout):
+                raise http_error(429, b"", header)
+            self.assertEqual(claude.request_usage(SECRET, urlopen=urlopen).get("retry_after"), expected, header)
+
+    def test_incomplete_read_is_a_network_error(self):
+        class Truncated(FakeResponse):
+            def read(self):
+                raise http.client.IncompleteRead(b"{", 10)
+        self.assertEqual(claude.request_usage(SECRET, urlopen=lambda r, timeout: Truncated(b""))["status"], "network")
+
+        def urlopen(request, timeout):
+            exc = http_error(500)
+            exc.read = Truncated(b"").read
+            raise exc
+        self.assertEqual(claude.request_usage(SECRET, urlopen=urlopen)["status"], "http_500")
+
+    def test_token_unfit_for_a_header_is_not_a_format_error_and_not_echoed(self):
+        bad = SECRET + "\nX-Injected: 1"
+        data = claude.request_usage(bad, urlopen=urllib.request.urlopen)  # http.client refuses it before sending
+        self.assertEqual(data["status"], "request")
+        self.assertNotIn(SECRET, json.dumps(data))
+
     def test_long_error_message_is_shortened(self):
         body = json.dumps({"error": {"type": "x", "message": "m" * 500}}).encode()
 
@@ -222,6 +260,64 @@ class RequestUsageTest(unittest.TestCase):
         self.assertEqual(claude.request_usage(SECRET, urlopen=slow)["status"], "network")
         garbage = claude.request_usage(SECRET, urlopen=lambda r, timeout: FakeResponse(b"<html>"))
         self.assertEqual(garbage["status"], "format")
+
+
+class UsageServer(http.server.BaseHTTPRequestHandler):
+    """A local stand-in for the usage endpoint: replies are chosen per test."""
+    reply = (200, {}, b"{}")
+    seen: list = []
+
+    def do_GET(self):
+        UsageServer.seen.append(self.headers.get("Authorization"))
+        code, headers, body = UsageServer.reply
+        self.send_response(code)
+        for key, value in headers.items():
+            self.send_header(key, value)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, *args):
+        pass
+
+
+class RealHttpTest(unittest.TestCase):
+    """request_usage over real urllib/http.client against a local server, not stubs."""
+
+    @classmethod
+    def setUpClass(cls):
+        cls.server = http.server.HTTPServer(("127.0.0.1", 0), UsageServer)
+        threading.Thread(target=cls.server.serve_forever, daemon=True).start()
+        cls.url = f"http://127.0.0.1:{cls.server.server_port}/api/oauth/usage"
+
+    @classmethod
+    def tearDownClass(cls):
+        cls.server.shutdown()
+        cls.server.server_close()
+
+    def request(self):
+        def urlopen(request, timeout):
+            request.full_url = self.url
+            return urllib.request.urlopen(request, timeout=timeout)
+        UsageServer.seen = []
+        return claude.request_usage(SECRET, urlopen=urlopen)
+
+    def test_token_reaches_the_server_but_never_the_result(self):
+        error = json.dumps({"type": "error", "error": {"type": "authentication_error", "message": "bad"}}).encode()
+        replies = [(200, {}, json.dumps({"five_hour": {"utilization": 1.0, "resets_at": None}}).encode()),
+                   (401, {}, error), (429, {"Retry-After": "60"}, error), (403, {}, b"<html>"), (500, {}, b"")]
+        for reply in replies:
+            UsageServer.reply = reply
+            data = self.request()
+            self.assertEqual(UsageServer.seen, [f"Bearer {SECRET}"])
+            self.assertNotIn(SECRET, json.dumps(data))
+            with self.subTest(code=reply[0]):
+                self.assertEqual(data["status"], "ok" if reply[0] == 200 else f"http_{reply[0]}")
+                try:
+                    claude.fetch_direct(0, read=lambda: claude.Login(SECRET, None), request=lambda t: data)
+                except claude.DirectError as exc:
+                    self.assertNotIn(SECRET, str(exc))
+        self.assertEqual(data["detail"], "unexpected HTTP status")
 
 
 class FetchDirectTest(unittest.TestCase):
@@ -276,6 +372,12 @@ class RenewLoginTest(unittest.TestCase):
 
     def test_find_claude_none_when_missing(self):
         self.assertIsNone(claude.find_claude(which=lambda name, path=None: None, environ=self.ENV))
+
+    def test_unset_user_is_left_out(self):
+        calls = []
+        claude.renew_login(run=lambda cmd, **kw: calls.append(kw) or subprocess.CompletedProcess(cmd, 0),
+                           find=lambda: "/x/claude", environ={"HOME": "/Users/u"}, **self.OK)
+        self.assertEqual(set(calls[0]["env"]), {"HOME", "TERM", "PATH"})
 
     def test_runs_mcp_list_in_clean_env(self):
         calls = []

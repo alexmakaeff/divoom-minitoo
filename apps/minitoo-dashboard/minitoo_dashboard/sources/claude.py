@@ -1,6 +1,8 @@
 from __future__ import annotations
 
+import http.client
 import json
+import math
 import os
 import shutil
 import signal
@@ -32,6 +34,13 @@ class LimitsView:
     has_data: bool
 
 
+def number(value: Any) -> Optional[float]:
+    """A finite JSON number; True/False are ints to Python but never a percentage or a time."""
+    if isinstance(value, bool) or not isinstance(value, (int, float)) or not math.isfinite(value):
+        return None
+    return float(value)
+
+
 def extract(data: Any, now: float) -> Optional[dict]:
     limits = data.get("rate_limits") if isinstance(data, dict) else None
     if not isinstance(limits, dict):
@@ -41,9 +50,9 @@ def extract(data: Any, now: float) -> Optional[dict]:
         window = limits.get(key)
         if not isinstance(window, dict):
             continue
-        pct, resets = window.get("used_percentage"), window.get("resets_at")
-        if isinstance(pct, (int, float)) and isinstance(resets, (int, float)):
-            record[key] = {"used_percentage": float(pct), "resets_at": float(resets)}
+        pct, resets = number(window.get("used_percentage")), number(window.get("resets_at"))
+        if pct is not None and resets is not None:
+            record[key] = {"used_percentage": pct, "resets_at": resets}
     return record if len(record) > 1 else None
 
 
@@ -69,6 +78,7 @@ SECURITY = "/usr/bin/security"
 NOT_FOUND = 44  # security's exit code for a missing item
 KEYCHAIN_TIMEOUT = 10  # still running after this: a Keychain prompt appeared; never wait on it
 USAGE_URL = "https://api.anthropic.com/api/oauth/usage"  # undocumented; Claude Code's /usage uses it
+RETRY_AFTER_MAX = 6 * 3600  # a server's Retry-After beyond this (or `inf`) must not hold checks until restart
 
 
 class DirectError(Exception):
@@ -130,7 +140,8 @@ def read_login(run: Callable[..., Any] = subprocess.run, timeout: float = KEYCHA
         raise DirectError("unexpected Keychain item format")
     if not isinstance(token, str) or not token:
         raise DirectError("unexpected Keychain item format")
-    return Login(token, expires / 1000 if isinstance(expires, (int, float)) else None)
+    expires = number(expires)
+    return Login(token, expires / 1000 if expires is not None else None)
 
 
 def _error_detail(body: bytes) -> Optional[str]:
@@ -143,29 +154,39 @@ def _error_detail(body: bytes) -> Optional[str]:
     return text[:200] or None
 
 
+def _retry_after(value: Any) -> Optional[float]:
+    """Retry-After in seconds; an HTTP date or nonsense falls back to the daemon's own back-off."""
+    try:
+        seconds = float(value or 0)
+    except ValueError:
+        return None
+    return min(seconds, RETRY_AFTER_MAX) if math.isfinite(seconds) and seconds > 0 else None
+
+
 def request_usage(token: str, timeout: float = 15, urlopen: Callable[..., Any] = urllib.request.urlopen) -> dict:
     """One usage request. The token goes only into the header; the result never contains it."""
     request = urllib.request.Request(USAGE_URL, headers={
         "Authorization": f"Bearer {token}", "anthropic-beta": "oauth-2025-04-20", "User-Agent": "minitoo-dashboard"})
     try:
         with urlopen(request, timeout=timeout) as response:
-            body = json.loads(response.read().decode("utf-8"))
+            raw = response.read()
     except urllib.error.HTTPError as exc:
         try:
             raw = exc.read()
-        except OSError:
+        except (OSError, http.client.HTTPException):
             raw = b""
         out: dict = {"status": f"http_{exc.code}",
                      "detail": _error_detail(raw) or ("token rejected" if exc.code == 401 else "unexpected HTTP status")}
-        try:
-            retry = float((exc.headers or {}).get("Retry-After") or 0)
-        except ValueError:  # an HTTP date: fall back to the daemon's own back-off
-            retry = 0
-        if retry > 0:
+        retry = _retry_after((exc.headers or {}).get("Retry-After"))
+        if retry is not None:
             out["retry_after"] = retry
         return out
-    except (urllib.error.URLError, OSError) as exc:  # no network, DNS, timeouts
+    except (urllib.error.URLError, OSError, http.client.HTTPException) as exc:  # no network, DNS, timeouts, cut-off
         return {"status": "network", "detail": str(getattr(exc, "reason", exc))[:200]}
+    except ValueError:  # http.client refused the header itself; its message would quote the token
+        return {"status": "request", "detail": "token not usable in a request (damaged Keychain item?)"}
+    try:
+        body = json.loads(raw.decode("utf-8"))
     except ValueError:
         return {"status": "format", "detail": "response is not JSON"}
     if not isinstance(body, dict):
@@ -187,8 +208,8 @@ def parse_direct(data: Any, now: float) -> dict:
     if not isinstance(data, dict):
         raise DirectError("Claude usage: no JSON object")
     if data.get("status") in REFUSED_STATUSES:
-        retry = data.get("retry_after")
-        retry = float(retry) if isinstance(retry, (int, float)) and retry > 0 else None
+        retry = number(data.get("retry_after"))
+        retry = retry if retry is not None and retry > 0 else None
         message = f"Claude usage: {data['status']} {data.get('detail', '')}".strip()
         if data["status"] == "http_403":
             message += f"; {PLAN_HINT}"
@@ -200,9 +221,9 @@ def parse_direct(data: Any, now: float) -> dict:
         window = data.get(key)
         if not isinstance(window, dict):
             continue
-        pct, resets = window.get("utilization"), iso_epoch(window.get("resets_at"))
-        if isinstance(pct, (int, float)) and resets is not None:
-            record[key] = {"used_percentage": float(pct), "resets_at": resets}
+        pct, resets = number(window.get("utilization")), iso_epoch(window.get("resets_at"))
+        if pct is not None and resets is not None:
+            record[key] = {"used_percentage": pct, "resets_at": resets}
     if not any(key in record for key in WINDOWS) and not any(isinstance(data.get(k), dict) for k in WINDOWS):
         raise DirectError("usage response has no five_hour/seven_day windows (format changed?)")
     return record
@@ -275,8 +296,8 @@ def renew_login(run: Callable[..., Any] = run_in_group, find: Callable[[], Optio
     if not online():  # offline `mcp list` still exits 0 and renews nothing (2026-10-12)
         raise OfflineError("no network; renewal postponed")
     home = environ.get("HOME") or os.path.expanduser("~")
-    env = {"HOME": home, "USER": environ.get("USER", ""), "LOGNAME": environ.get("LOGNAME", ""),
-           "TERM": "dumb", "PATH": f"{os.path.dirname(path)}:{SYSTEM_PATH}"}
+    env = {"HOME": home, "TERM": "dumb", "PATH": f"{os.path.dirname(path)}:{SYSTEM_PATH}"}
+    env.update({key: environ[key] for key in ("USER", "LOGNAME") if environ.get(key)})
     try:
         result = run([path, "mcp", "list"], env=env, cwd=home, timeout=timeout,
                      stdin=subprocess.DEVNULL, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)

@@ -385,6 +385,15 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T + 3600)
         self.assertIsNone(store.read_json(self.home / "state.json")["limits_error"])
 
+    def test_silent_notice_does_not_blame_the_phone_first(self):
+        from minitoo_dashboard import i18n
+        for lang in ("en", "ru"):
+            body = i18n.STRINGS[lang]["silent_body"]
+            self.assertNotIn("probably", body)
+            self.assertNotIn("вероятно", body)
+        self.assertIn("off and on", i18n.STRINGS["en"]["silent_body"])
+        self.assertIn("Выключите и включите", i18n.STRINGS["ru"]["silent_body"])
+
     def test_lost_keychain_access_notifies_once_per_episode(self):
         from minitoo_dashboard.sources.claude import DirectError, KeychainAccessError
         cfg = Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct", lang="ru")

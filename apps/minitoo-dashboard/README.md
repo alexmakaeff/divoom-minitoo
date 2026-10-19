@@ -242,15 +242,18 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
   30 s, 1, 2 and 5 minutes, and recovers by itself. `minitoo-dashboard logs`
   shows the details.
 - **"Device reply: not responding" in `status`, or a macOS notification that
-  MiniToo is not responding.** The Bluetooth link is open but the MiniToo
-  ignores it, typically because the Divoom phone app connected to it: closing the
-  app does not release it (the phone keeps the link for notifications).
-  Turn off Bluetooth on the phone: disconnecting MiniToo in the phone's settings
-  was not enough in testing (the phone reconnects, even after a MiniToo restart).
-  No restart is needed once the phone's Bluetooth is off. The dashboard
-  reconnects and returns by itself within a few minutes (its retries back off up
-  to 5 minutes); `minitoo-dashboard pause` then `resume` retries at once. Restart
-  MiniToo only if it stays silent.
+  MiniToo is not responding.** The Bluetooth link opens but the MiniToo ignores
+  it. Two causes were seen:
+  - the MiniToo itself got stuck (2026-10-19, after being switched on with the
+    phone ruled out): switching it off and on fixed it at once;
+  - the Divoom phone app connected to it: closing the app does not release it
+    (the phone keeps the link for notifications), and disconnecting MiniToo in
+    the phone's settings was not enough in testing. Turn off Bluetooth on the
+    phone; no MiniToo restart is needed then.
+
+  Try the restart first, then the phone. The dashboard reconnects and returns by
+  itself within a few minutes (its retries back off up to 5 minutes);
+  `minitoo-dashboard pause` then `resume` retries at once.
 - **MiniToo restarts by itself.** It sometimes restarts while handling an
   ordinary frame (cause unknown, firmware). `minitoo-dashboard logs` then shows
   "device restarted while handling a frame"; switching it off or walking away

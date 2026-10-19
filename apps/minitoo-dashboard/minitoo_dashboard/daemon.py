@@ -97,7 +97,7 @@ class Dashboard:
         self.limit_alert_until = 0.0  # a limit alert is on screen until then
         self.reply_check: Optional[Tuple[int, float]] = None  # (log mark, sent at) awaiting a reply
         self.unanswered, self.unanswered_since = 0, 0.0
-        self.silent_since: Optional[float] = None  # the MiniToo stopped replying (phone holds it?)
+        self.silent_since: Optional[float] = None  # the MiniToo stopped replying (stuck? phone holds it?)
         self.backoff = Backoff()
         self.device: Any = None
         self.device_mac: Optional[str] = None
@@ -290,7 +290,7 @@ class Dashboard:
             return True
         if self.silent_since is None:
             self.silent_since = self.unanswered_since
-            log.warning("device not responding (the phone app may hold the connection)")
+            log.warning("device not responding (stuck, switched off, or held by the phone)")
             self._notify(cfg, "silent_body")
         delay = self.backoff.fail(now)
         device.stop()  # the next send reconnects from scratch

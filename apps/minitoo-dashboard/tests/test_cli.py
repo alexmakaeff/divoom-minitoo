@@ -87,6 +87,9 @@ class CliTest(unittest.TestCase):
         store.write_json_atomic(self.home / "state.json", {"updated_at": 1.0, "device_silent_since": 1.0})
         _, out = self.run_cli(["status"])
         self.assertIn("Device reply:  not responding (started", out)
+        # Power-cycling fixed it with the phone ruled out (2026-10-19); the phone stays the second suspect.
+        self.assertIn("switch MiniToo off and on", out)
+        self.assertNotIn("probably the phone", out)
         self.assertIn("phone", out)
 
     def test_status_hides_limits_error_older_than_data(self):

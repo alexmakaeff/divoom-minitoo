@@ -98,6 +98,7 @@ class Dashboard:
         self.reply_check: Optional[Tuple[int, float]] = None  # (log mark, sent at) awaiting a reply
         self.unanswered, self.unanswered_since = 0, 0.0
         self.silent_since: Optional[float] = None  # the MiniToo stopped replying (stuck? phone holds it?)
+        self.link_closed = False  # the link closed and nothing answered since: switched off or away, not silent
         self.backoff = Backoff()
         self.device: Any = None
         self.device_mac: Optional[str] = None
@@ -275,7 +276,7 @@ class Dashboard:
             return True
         mark, sent_at = self.reply_check
         if device.replied_since(mark):
-            self.reply_check, self.unanswered = None, 0
+            self.reply_check, self.unanswered, self.link_closed = None, 0, False
             if self.silent_since is not None:
                 log.info("device responding again")
                 self.silent_since = None
@@ -288,7 +289,7 @@ class Dashboard:
         self.unanswered += 1
         if self.unanswered < SILENT_AFTER:
             return True
-        if self.silent_since is None:
+        if self.silent_since is None and not self.link_closed:
             self.silent_since = self.unanswered_since
             log.warning("device not responding (stuck, switched off, or held by the phone)")
             self._notify(cfg, "silent_body")
@@ -305,6 +306,11 @@ class Dashboard:
                 self.resend_at = now + RESTART_SETTLE  # it shows a clock face until the next upload
             else:
                 log.info("device Bluetooth link closed (switched off, out of range or the Mac slept)")
+                # Unanswered sends from now on mean "gone", not "silent" (2026-10-16 false episode).
+                self.link_closed = True
+                if self.silent_since is not None:
+                    log.info("device not-responding episode ended: the link closed")
+                    self.silent_since = None
 
     def _show_alert(self, cfg: config_mod.Config, device: Any, now: float) -> None:
         self.limit_alert_until = 0.0  # a question replaces a limit alert; the dashboard follows it

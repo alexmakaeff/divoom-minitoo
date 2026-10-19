@@ -269,6 +269,15 @@ helped.
   again" on the next backoff send). Owner check afterwards: with the phone's
   Bluetooth off, `pause` + `resume` was enough, no restart needed. Hints say:
   turn off the phone's Bluetooth; restart MiniToo only if it stays silent.
+- 2026-10-19: hints now say restart MiniToo first, the phone second: after a
+  weekend the MiniToo was stuck with the phone ruled out (device forgotten in
+  the phone's settings) and a power cycle fixed it at once.
+- 2026-10-19: a Bluetooth link closure (not a restart mid-upload) means the
+  MiniToo was switched off or left: unanswered sends after it until the next
+  reply do not open a silent episode, and an open episode ends. The log showed
+  a false episode (with a notification) every evening within a minute of
+  "link closed", lasting overnight or all weekend; daytime episodes without a
+  closure (phone, stuck device) are still detected.
 
 ### Amendment (2026-10-05): device restarts are logged
 

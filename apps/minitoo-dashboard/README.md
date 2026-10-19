@@ -251,6 +251,9 @@ Calendar helper ────► cache/calendar.json      ┘  (launchd)
     the phone's settings was not enough in testing. Turn off Bluetooth on the
     phone; no MiniToo restart is needed then.
 
+  Switching MiniToo off is not reported: after "device Bluetooth link closed"
+  unanswered sends count as "away" until it answers again.
+
   Try the restart first, then the phone. The dashboard reconnects and returns by
   itself within a few minutes (its retries back off up to 5 minutes);
   `minitoo-dashboard pause` then `resume` retries at once.

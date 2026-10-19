@@ -692,6 +692,44 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T + 40)  # backing off
         self.assertEqual(len(self.sends()), 2)
 
+    def test_switched_off_device_is_not_reported_silent(self):
+        # 2026-10-16: the link closed at 18:01 (MiniToo switched off), the next sends went
+        # unanswered and a false "not responding" episode lasted all weekend.
+        dash = self.make()
+        dash.tick(T)
+        self.device.closed = [False]
+        self.device.replies = False
+        for t in range(1, 120):
+            dash.tick(T + t)
+        self.assertEqual(self.notices, [])
+        self.assertIsNone(store.read_json(self.home / "state.json")["device_silent_since"])
+        self.assertIn(("stop",), self.device.calls)  # still backs off and reconnects fresh
+
+    def test_link_closure_ends_an_open_silent_episode(self):
+        dash = self.make()
+        self.device.replies = False
+        dash.tick(T)
+        dash.tick(T + 11)
+        with self.assertLogs("minitoo_dashboard", "WARNING"):
+            dash.tick(T + 22)
+        self.assertIsNotNone(dash.silent_since)
+        self.device.closed = [False]
+        dash.tick(T + 30)
+        self.assertIsNone(store.read_json(self.home / "state.json")["device_silent_since"])
+
+    def test_a_reply_after_the_closure_re_arms_silence_detection(self):
+        dash = self.make()
+        dash.tick(T)
+        self.device.closed = [False]
+        dash.tick(T + 1)  # switched off...
+        self.sources.version = 1
+        dash.tick(T + 400)  # ...and on again: this send is answered
+        self.device.replies = False  # then the phone grabs it
+        for t in range(401, 520):
+            self.sources.version = t
+            dash.tick(T + t)
+        self.assertEqual(len(self.notices), 1)
+
     def test_wake_drops_a_reply_check_from_before_sleep(self):
         dash = self.make()
         self.device.replies = False

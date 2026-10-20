@@ -18,6 +18,8 @@ log.addHandler(logging.NullHandler())  # silent until setup_logging() attaches t
 
 WEATHER_EVERY = 900
 WEATHER_RETRY = 300
+WEATHER_WAKE_RETRY = 30  # Wi-Fi reconnects after wake: retry a failed refresh soon...
+WEATHER_WAKE_WINDOW = 300  # ...for this long, then the ordinary WEATHER_RETRY
 CALENDAR_EVERY = 60
 CLAUDE_EVERY = 300  # direct usage requests: undocumented endpoint, keep it gentle
 CLAUDE_ACCESS_RETRY = 1800  # Keychain refused `security`: only the owner can fix it (see `status`)
@@ -110,6 +112,8 @@ class Dashboard:
         self.status = "chilling"
         self.last_tick: Optional[float] = None
         self.next_weather = self.next_calendar = self.next_claude = self.next_codex = 0.0
+        self.weather_wake_until = 0.0  # quick weather retries until then (just woke up)
+        self.weather_retrying = False  # a quick retry is pending: its failure is not logged again
         self.limits_error: Optional[str] = None
         self.limits_error_at: Optional[float] = None
         self.keychain_lost = False  # notified about this loss of access already
@@ -148,6 +152,7 @@ class Dashboard:
         if self.last_tick is not None and now - self.last_tick > WAKE_JUMP:
             log.info("clock jumped %.0fs (sleep/wake); refreshing everything", now - self.last_tick)
             self.next_weather = self.next_calendar = self.next_codex = 0.0
+            self.weather_wake_until = now + WEATHER_WAKE_WINDOW
             self.next_claude = self.claude_hold
             self.next_renew = max(self.next_renew, now + CLAUDE_RENEW_AFTER_WAKE)
             self.last_blob = None
@@ -193,10 +198,12 @@ class Dashboard:
         if cfg.has_city and now >= self.next_weather:
             try:
                 self.sources.refresh_weather(cfg, now)
-                self.next_weather = now + WEATHER_EVERY
+                self.next_weather, self.weather_retrying = now + WEATHER_EVERY, False
             except Exception as exc:  # network, JSON, API changes: keep last data
-                log.warning("weather refresh failed: %s", exc)
-                self.next_weather = now + WEATHER_RETRY
+                if not self.weather_retrying:
+                    log.warning("weather refresh failed: %s", exc)
+                self.weather_retrying = now < self.weather_wake_until
+                self.next_weather = now + (WEATHER_WAKE_RETRY if self.weather_retrying else WEATHER_RETRY)
         if now >= self.next_calendar:
             try:
                 self.sources.refresh_calendar(cfg, now)

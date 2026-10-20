@@ -491,7 +491,7 @@ staleness and `render` are pure functions with no I/O.
 
 | Data | Refresh |
 | --- | --- |
-| Weather | every 15 min |
+| Weather | every 15 min; a failure retries in 5 min, or every 30 s for 5 min after a wake (Wi-Fi reconnecting; only the first failure is logged) |
 | Calendar | every 60 s |
 | Claude limits | read on every render (written by the status line) |
 | Codex limits + working | every 5 s when `CODEX=on` |

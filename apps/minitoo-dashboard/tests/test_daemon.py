@@ -228,6 +228,34 @@ class DashboardTest(unittest.TestCase):
         dash.tick(T + 50)  # jump of 25 s < WAKE_JUMP keeps schedule
         self.assertEqual(self.sources.weather_calls, 1)
 
+    def test_weather_retries_quickly_right_after_wake(self):
+        # 2026-10-20: the wake refresh hit DNS before Wi-Fi was up, then waited 5 min.
+        dash = self.make()
+        dash.tick(T)
+        self.sources.weather_fails = True
+        for t in range(3600, 3631):  # wake; the first try fails
+            dash.tick(T + t)
+        self.assertEqual(self.sources.weather_calls, 3)  # T, wake, +30 s
+        self.sources.weather_fails = False
+        for t in range(3631, 3661):
+            dash.tick(T + t)
+        self.assertEqual(self.sources.weather_calls, 4)  # Wi-Fi up: fetched 30 s later
+        for t in range(3661, 3700):
+            dash.tick(T + t)
+        self.assertEqual(self.sources.weather_calls, 4)  # back to every 15 min
+
+    def test_weather_quick_retries_stop_five_minutes_after_wake(self):
+        dash = self.make()
+        dash.tick(T)
+        self.sources.weather_fails = True
+        with self.assertLogs("minitoo_dashboard", "WARNING") as logs:
+            for t in range(3600, 4300):
+                dash.tick(T + t)
+        # wake + every 30 s for 5 min (10), then the ordinary 5-min retry once
+        self.assertEqual(self.sources.weather_calls, 1 + 1 + 10 + 1)
+        # quick retries stay out of the log (night DarkWakes without Wi-Fi would flood it)
+        self.assertEqual(sum("weather refresh failed" in line for line in logs.output), 2)
+
     def test_direct_limits_polled_every_five_minutes(self):
         cfg = Config(device_mac="AA:BB:CC:DD:EE:FF", claude_limits="direct")
         dash = self.make(cfg=cfg)
